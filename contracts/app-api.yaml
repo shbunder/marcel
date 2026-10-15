@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.7.3
+  version: 0.8.0
   description: |
-    The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
+    The API the iPhone app uses to talk to the hub on the person's own computer (the NUC for the
+    owner's install, ADR-013). **Every path, including `/health`,
     `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
     exposes `/api/*` and nothing else of the app's. Every route needs a device token
     (`Authorization: Bearer <token>`), except `/health` and `/pair`.
@@ -18,14 +19,17 @@ info:
     Errors always have the `Error` shape, with a `message` written for the person holding the phone.
     Lists are paginated by cursor: pass `cursor` from the previous page's `next_cursor`.
 
-    **People** (new in 0.7.0, B-37…B-40). Every device belongs to one person (`Me.role`): the
-    `owner`, who runs Marcel at home, or a `member` of the family. Each person sees only their own
-    agents and everything under them. Operations marked `x-owner-only: true` are the owner's alone;
-    a member gets 403 `owner_only` with a message that says to ask the owner. Answering a
-    self-change approval card is owner-only too (`POST /approvals/{approval_id}`).
+    **One person, many buddies** (0.8.0, ADR-013, B-49). One install belongs to one person, the
+    Claude account holder (`Me.user_id`, `Me.name`). That person has one or more **buddies**: the
+    schema is still called `Agent`, so clients do not churn, but the app and these descriptions say
+    buddy. Each buddy has its own brain, chat, memory and look. Every paired phone of the one person
+    may use every route and see every buddy; there are no roles. Each phone shows one buddy
+    (`Device.agent_id`) and switches with `PATCH /devices/{device_id}`.
 
-    **0.7.0 is additive.** Every field it adds to an existing schema is optional, so a hub that
-    does not fill it yet still matches; the operations it adds are served story by story.
+    **0.8.0 is breaking.** It removes the people routes and their schemas (`User`, `NewUser`,
+    `UserRole`), `Me.role`, the `owner_only` refusal and the owner-only mark on operations (ADR-013
+    retires them). Every field it adds to an existing schema is optional, except `Device.agent_id`,
+    which a 0.8.0 hub always sends. The operations it adds are served story by story.
 servers:
   - url: https://marcel-bot.com/api
     description: Production, through the Cloudflare tunnel
@@ -45,7 +49,6 @@ tags:
   - name: memory
   - name: schedules
   - name: usage
-  - name: people
   - name: mentions
 
 paths:
@@ -121,7 +124,7 @@ paths:
     get:
       tags: [access]
       operationId: getMe
-      summary: Who this device belongs to, and that person's agents.
+      summary: The one person this install belongs to, and their live buddies.
       responses:
         '200':
           description: The signed-in user.
@@ -156,6 +159,35 @@ paths:
         '204': { description: Revoked. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [access]
+      operationId: updateDevice
+      summary: Choose the buddy this phone shows (B-49). New in 0.8.0.
+      description: |
+        Any paired phone may change any phone's buddy, its own included. The hub answers the
+        updated `Device` and sends the `device.updated` event, so the phone switches even when the
+        change came from another phone. That buddy's pushes go to this phone from then on; pushes
+        about no buddy (redeploy, backup, usage, logged out) go to every phone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUpdate' }
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: |
+            No such phone (code `device_not_found`), or `agent_id` is no buddy or an archived one
+            (code `agent_not_found`). Nothing changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /devices/{device_id}/push:
     parameters:
@@ -179,98 +211,57 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /users:
-    get:
-      tags: [people]
-      operationId: listUsers
-      summary: Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
-      x-owner-only: true
-      responses:
-        '200':
-          description: The owner first, then members by name.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/User' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/OwnerOnly' }
+  /pairing-codes:
     post:
-      tags: [people]
-      operationId: addUser
-      summary: Add a family member and their helper. Owner only. New in 0.7.0.
+      tags: [access]
+      operationId: createPairingCode
+      summary: A one-time code that pairs another phone (B-49). New in 0.8.0.
       description: |
-        Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
-        look picked from the agent's name when absent), main conversation and Inbox. Pair their
-        first phone with `POST /users/{user_id}/pairing-codes`.
-      x-owner-only: true
+        Any paired phone may ask. The same kind of code `marcel-hub pair` prints: it works once,
+        for 10 minutes, with `POST /pair`. The new phone starts on `agent_id` when given (its link
+        carries `&buddy=<agent_id>`), else on the first live buddy. Show `link` as a QR code, or
+        share it as a link.
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/NewUser' }
-      responses:
-        '201':
-          description: Added.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/User' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/OwnerOnly' }
-
-  /users/{user_id}:
-    parameters:
-      - $ref: '#/components/parameters/UserId'
-    delete:
-      tags: [people]
-      operationId: removeUser
-      summary: Remove a family member. Owner only. New in 0.7.0.
-      description: |
-        Their phones are signed out at once (their tokens answer 401), their running quests stop,
-        and their helper is archived: no brain, no schedules, no digests. Their chats, items and
-        notes stay on the NUC.
-      x-owner-only: true
-      responses:
-        '204': { description: Removed. }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/OwnerOnly' }
-        '404':
-          description: No such person (code `user_not_found`).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '409':
-          description: '`cannot_remove_owner`: the owner cannot be removed. Nothing changed.'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /users/{user_id}/pairing-codes:
-    parameters:
-      - $ref: '#/components/parameters/UserId'
-    post:
-      tags: [people]
-      operationId: createPairingCode
-      summary: A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
-      description: |
-        The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
-        `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
-        it as a link.
-      x-owner-only: true
+            schema: { $ref: '#/components/schemas/NewPairingCode' }
       responses:
         '201':
           description: A fresh code.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IssuedPairingCode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/OwnerOnly' }
         '404':
-          description: No such person (code `user_not_found`).
+          description: '`agent_id` is no buddy or an archived one (code `agent_not_found`).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /agents:
+    post:
+      tags: [agents]
+      operationId: createAgent
+      summary: Add a buddy (B-49). New in 0.8.0.
+      description: |
+        A new buddy with its own brain, main conversation and Inbox, as the first one has. Without
+        `look` the hub picks one from the name (the same name always gets the same look). Every
+        phone hears of it through `agent.updated`; no phone switches to it by itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewAgent' }
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /agents/{agent_id}:
     parameters:
@@ -278,8 +269,8 @@ paths:
     get:
       tags: [agents]
       operationId: getAgent
-      summary: One agent, with its current state for the avatar.
-      description: Only the caller's own agent; another person's answers 404, like one that does not exist.
+      summary: One buddy, with its current state for the avatar.
+      description: Any buddy of the one person, an archived one too (`archived_at`); an unknown id answers 404.
       responses:
         '200':
           description: The agent.
@@ -291,9 +282,9 @@ paths:
     patch:
       tags: [agents]
       operationId: updateAgent
-      summary: Rename an agent, change its look, or finish onboarding.
+      summary: Rename a buddy, change its look, or finish onboarding.
       description: |
-        Only for the caller's own agent; another person's answers 404. A change sends the
+        Any buddy of the one person; an unknown id answers 404. A change sends the
         `agent.updated` event. A rename also tells the agent's brain its new name (channel
         `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
         `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
@@ -311,6 +302,35 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /agents/{agent_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [agents]
+      operationId: archiveAgent
+      summary: Archive a buddy (B-49). New in 0.8.0.
+      description: |
+        The buddy's brain stops, and its schedules and digests with it; running quests finish on
+        their own. Its chat, quests, items and memory stay readable (`GET /agents/{agent_id}` shows
+        `archived_at`), and it leaves `Me.agents`. Phones that showed it switch to the first live
+        buddy (each gets `device.updated`). Archiving an archived buddy changes nothing and answers
+        it again. Sends `agent.updated`.
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `last_buddy`: this is the only live buddy, and an install always keeps one. Nothing
+            changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /agents/{agent_id}/brain/rollover:
     parameters:
@@ -452,7 +472,7 @@ paths:
       tags: [conversations]
       operationId: listConversations
       summary: The main conversation and every side thread of an agent.
-      description: An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
+      description: A buddy that does not exist gives an empty list.
       parameters:
         - name: agent_id
           in: query
@@ -498,8 +518,8 @@ paths:
         is attached: the stored message carries it, and Marcel is told which item it is about; an
         unknown item answers 404 `artifact_not_found`. New in 0.5.0.
 
-        With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
-        item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+        With `mentions` (new in 0.7.0, B-42), each one must be an existing quest, project or
+        item (any buddy's), or the message is refused with 404 `mention_not_found` and nothing is stored. The
         stored message carries them, with the hub's current titles, and Marcel gets them too. A
         `project` mention also sets the message's `project_id` when the message has none.
       requestBody:
@@ -540,7 +560,7 @@ paths:
               schema: { $ref: '#/components/schemas/Message' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404':
-          description: No such message, or one in another person's conversation (code `message_not_found`).
+          description: No such message (code `message_not_found`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -598,7 +618,7 @@ paths:
       operationId: searchMentions
       summary: Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
       description: |
-        The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+        Quests (`task`), projects and items (`artifact`) of every buddy whose title contains `q`
         (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
         `task` and `artifact`, `#` for `project`.
       parameters:
@@ -871,8 +891,8 @@ paths:
       operationId: answerApproval
       summary: Approve or deny (B-12). The first answer wins, from the app or a terminal.
       description: |
-        A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
-        403 `owner_only` (new in 0.7.0).
+        Any paired phone may answer any card, a self-change card (`tool: self_change`, B-24) too
+        (0.8.0: the owner-only rule went with the people model, ADR-013).
       requestBody:
         required: true
         content:
@@ -886,7 +906,6 @@ paths:
               schema: { $ref: '#/components/schemas/Approval' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/OwnerOnly' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: Already answered (for example in a terminal) or expired. The body is the approval as it stands.
@@ -1359,11 +1378,6 @@ components:
       in: path
       required: true
       schema: { type: string }
-    UserId:
-      name: user_id
-      in: path
-      required: true
-      schema: { type: string }
     DeviceId:
       name: device_id
       in: path
@@ -1420,13 +1434,6 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    OwnerOnly:
-      description: |
-        `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-        words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
     Conflict:
       description: The thing is not in a state that allows this.
       content:
@@ -1450,12 +1457,12 @@ components:
             `approval_not_found`; tasks:
             `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
+            `agent_not_found`; agents: `rollover_running`, `last_buddy` (409); artifacts and memory:
             `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
             `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
-            `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); people
-            (0.7.0): `owner_only` (403), `user_not_found` (404), `cannot_remove_owner` (409);
-            mentions (0.7.0): `mention_not_found` (404). New codes may be added; treat an unknown
+            `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); mentions
+            (0.7.0): `mention_not_found` (404). 0.8.0 removed `owner_only`, `user_not_found` and
+            `cannot_remove_owner` with the people model, and added `last_buddy`. New codes may be added; treat an unknown
             code by its HTTP status.
         message:
           type: string
@@ -1481,11 +1488,18 @@ components:
               type: string
               description: Why not, when `reachable` is false.
         brain_alive: { type: boolean }
+        os:
+          type: string
+          enum: [macos, linux]
+          description: |
+            The kind of computer the hub runs on, so the app can say "Your Mac is asleep" (B-51).
+            New in 0.8.0; absent from an older hub, and the app then says "your computer".
       example:
         ok: true
         version: 0.1.0
         runner: { reachable: true }
         brain_alive: true
+        os: macos
 
     PairRequest:
       type: object
@@ -1518,31 +1532,36 @@ components:
       properties:
         user_id: { type: string }
         name: { type: string }
-        role:
-          $ref: '#/components/schemas/UserRole'
-          description: New in 0.7.0. The app shows People only to the owner.
         device_id: { type: string }
         agents:
           type: array
+          description: Every live buddy, the first one first. Archived buddies are not listed (0.8.0).
           items: { $ref: '#/components/schemas/Agent' }
         push:
           type: object
           description: |
-            Which push backends the hub can use. Register APNs only when `apns` is true;
-            otherwise subscribe to an ntfy topic on `ntfy_server` and register that (B-18).
+            Which push backends the hub can use. Prefer the relay when `relay` is true (register
+            with the relay, then `PUT /devices/{device_id}/push` with `kind: relay`); else APNs when
+            `apns` is true; else subscribe to an ntfy topic on `ntfy_server` and register that
+            (B-18).
           required: [apns, ntfy]
           additionalProperties: false
           properties:
             apns: { type: boolean }
             ntfy: { type: boolean }
             ntfy_server: { type: string, format: uri }
+            relay:
+              type: boolean
+              description: |
+                The hub can push through the push relay (`push-relay.yaml`), sealing each
+                notification for the phone (`SealedPush`). New in 0.8.0; absent reads as false.
           if: { properties: { ntfy: { const: true } } }
           then: { required: [ntfy_server] }
       example:
         user_id: usr_owner
         name: Shaun
         device_id: dev_01J9ZQ4K2B
-        push: { apns: false, ntfy: true, ntfy_server: 'https://ntfy.sh' }
+        push: { apns: false, ntfy: true, ntfy_server: 'https://ntfy.sh', relay: true }
         agents:
           - id: agt_marcel
             name: Marcel
@@ -1554,69 +1573,15 @@ components:
             model_brain: opus
             model_worker: sonnet
 
-    UserRole:
-      type: string
-      description: '`owner`: runs Marcel at home and whose Claude login the NUC uses (B-37). `member`: a family member the owner added.'
-      enum: [owner, member]
-      example: member
-
-    User:
+    NewPairingCode:
       type: object
-      description: A person, as the owner's People screen shows them (B-37, B-40). New in 0.7.0.
-      required: [id, name, role, created_at, device_count, quests_this_week]
+      description: The body of `POST /pairing-codes`; may be left out. New in 0.8.0.
       additionalProperties: false
       properties:
-        id: { type: string }
-        name: { type: string, minLength: 1, maxLength: 40 }
-        role: { $ref: '#/components/schemas/UserRole' }
-        created_at: { type: string, format: date-time }
-        agent:
-          type: object
-          description: The person's helper. Absent only while it is still being set up.
-          required: [id, name]
-          additionalProperties: false
-          properties:
-            id: { type: string }
-            name: { type: string }
-            look: { $ref: '#/components/schemas/Look' }
-        device_count:
-          type: integer
-          minimum: 0
-          description: Phones paired to this person and not revoked.
-        quests_this_week:
-          type: integer
-          minimum: 0
-          description: Quests their helper started in the last 7 days.
-      example:
-        id: usr_01JA3E1
-        name: Emma
-        role: member
-        created_at: '2026-10-13T17:20:00Z'
-        agent:
-          id: agt_01JA3E2
-          name: Pip
-          look: { animal: fox, color: tangerine, personality: cheerful }
-        device_count: 1
-        quests_this_week: 3
-
-    NewUser:
-      type: object
-      required: [name, agent]
-      additionalProperties: false
-      properties:
-        name: { type: string, minLength: 1, maxLength: 40 }
-        agent:
-          type: object
-          required: [name]
-          additionalProperties: false
-          properties:
-            name: { type: string, minLength: 1, maxLength: 40 }
-            look:
-              $ref: '#/components/schemas/NewLook'
-              description: Picked from the agent's name when absent.
-      example:
-        name: Emma
-        agent: { name: Pip, look: { animal: fox, color: tangerine, personality: cheerful } }
+        agent_id:
+          type: string
+          description: The buddy the new phone starts on. Absent means the first live buddy.
+      example: { agent_id: agt_01JA3E2 }
 
     IssuedPairingCode:
       type: object
@@ -1633,7 +1598,7 @@ components:
           description: 10 minutes after it was made; the app shows the time left.
       example:
         code: R4T8WZ
-        link: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=R4T8WZ
+        link: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=R4T8WZ&buddy=agt_01JA3E2
         expires_at: '2026-10-13T17:31:00Z'
 
     PushTarget:
@@ -1641,7 +1606,13 @@ components:
       required: [kind]
       additionalProperties: false
       properties:
-        kind: { type: string, enum: [apns, ntfy] }
+        kind:
+          type: string
+          enum: [apns, ntfy, relay]
+          description: |
+            `relay` (new in 0.8.0): the phone registered with the push relay (`push-relay.yaml`
+            `POST /v1/register`) and gives its hub what the hub needs to push through it. The
+            preferred kind when `Me.push.relay` is true.
         apns_token:
           type: string
           pattern: '^[0-9a-fA-F]{64,200}$'
@@ -1652,25 +1623,60 @@ components:
         ntfy_topic:
           type: string
           description: Required when `kind` is `ntfy`.
+        relay_url:
+          type: string
+          format: uri
+          pattern: '^https://[^/?#@]+(/[^?#]*)?$'
+          description: |
+            Required when `kind` is `relay`. The relay's base URL, from the app's build; the hub
+            posts to `<relay_url>/v1/push`.
+        handle:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22}$'
+          description: Required when `kind` is `relay`. The phone's handle at the relay (`Registered.handle`).
+        send_secret:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: |
+            Required when `kind` is `relay`. The bearer secret for this handle at the relay
+            (`Registered.send_secret`). The hub stores it and never shows it again.
+        device_key:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          description: |
+            Required when `kind` is `relay`. The phone's X25519 public key, 32 bytes as base64url
+            without padding. The phone made the key pair and keeps the private half in its
+            Keychain; the hub seals every push for this key (`SealedPush`). The relay never gets it.
       allOf:
         - if: { properties: { kind: { const: apns } } }
           then: { required: [apns_token] }
         - if: { properties: { kind: { const: ntfy } } }
           then: { required: [ntfy_topic] }
+        - if: { properties: { kind: { const: relay } } }
+          then: { required: [relay_url, handle, send_secret, device_key] }
       example: { kind: ntfy, ntfy_topic: marcel-shaun-7f3a }
 
     Device:
       type: object
-      required: [id, name, created_at, push]
+      required: [id, name, created_at, push, agent_id]
       additionalProperties: false
       properties:
         id: { type: string }
         name: { type: string }
         created_at: { type: string, format: date-time }
         last_seen_at: { type: string, format: date-time }
+        agent_id:
+          type: string
+          description: |
+            The buddy this phone shows (B-49), always a live one. Changed with
+            `PATCH /devices/{device_id}`; set at pairing (`NewPairingCode.agent_id`). New in 0.8.0.
         push:
           type: string
-          enum: [apns, ntfy, none]
+          enum: [apns, ntfy, relay, none]
+          description: |
+            The kind of push target registered (`PushTarget.kind`). `none` also after the hub
+            cleared a relay target the relay answered 410 for (the phone's APNs token is gone): the
+            app registers again when it sees `none` (0.8.0).
         current:
           type: boolean
           description: True for the device making this request.
@@ -1679,8 +1685,20 @@ components:
         name: Shaun's iPhone
         created_at: '2026-10-04T18:02:11Z'
         last_seen_at: '2026-10-04T18:40:00Z'
-        push: ntfy
+        agent_id: agt_marcel
+        push: relay
         current: true
+
+    DeviceUpdate:
+      type: object
+      required: [agent_id]
+      additionalProperties: false
+      properties:
+        agent_id:
+          type: string
+          minLength: 1
+          description: The buddy this phone shows from now on; a live one.
+      example: { agent_id: agt_01JA3E2 }
 
     AgentState:
       type: object
@@ -1729,6 +1747,12 @@ components:
           type: string
           deprecated: true
           description: Deprecated in 0.7.0. Fed the old avatar's deterministic details (spots, blink timing).
+        archived_at:
+          type: string
+          format: date-time
+          description: |
+            When the buddy was archived (`POST /agents/{agent_id}/archive`). Its brain is stopped;
+            its chat and memory stay readable. Absent for a live buddy. New in 0.8.0.
         onboarded_at:
           type: string
           format: date-time
@@ -1751,6 +1775,18 @@ components:
         state: { kind: idle }
         model_brain: opus
         model_worker: sonnet
+
+    NewAgent:
+      type: object
+      description: The body of `POST /agents`, a new buddy. New in 0.8.0.
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        look:
+          $ref: '#/components/schemas/NewLook'
+          description: Picked from the name when absent.
+      example: { name: Pip, look: { animal: fox, color: tangerine, personality: cheerful } }
 
     AgentUpdate:
       type: object
@@ -1793,7 +1829,7 @@ components:
     NewLook:
       type: object
       description: |
-        A look sent to the hub (`AgentUpdate.look`, `NewUser.agent.look`). Only the known values;
+        A look sent to the hub (`AgentUpdate.look`, `NewAgent.look`). Only the known values;
         anything else is 400 `bad_request`. New in 0.7.1 (0.7.0 used `Look` here, with the same rules).
       required: [animal, color, personality]
       additionalProperties: false
@@ -1895,8 +1931,8 @@ components:
           maxItems: 10
           items: { $ref: '#/components/schemas/Mention' }
           description: |
-            The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
-            the caller's own (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
+            The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must
+            exist (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
       example: { text: Also add a test for the empty case., client_id: 7d2c9a40-1f7b-4e55-9e1a-2c3b4d5e6f70 }
 
     MentionKind:
@@ -2637,11 +2673,14 @@ components:
         tracker_url:
           type: string
           format: uri
-          pattern: '^https://'
+          pattern: '^https://claude\.ai/(code/)?artifact/[A-Za-z0-9_-]+$'
           description: |
-            A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
-            a worker reports a `link` artifact with `role: tracker` (channel.schema.json `Artifact`);
-            a later one replaces it. New in 0.7.0.
+            A coding project's tracker (B-46), a claude.ai artifact readable on the phone and the
+            laptop: `https://claude.ai/artifact/<id>` or `https://claude.ai/code/artifact/<id>`,
+            nothing else (0.8.0). Set only by the project's kickoff quest (brain-api.yaml
+            `NewTask.kickoff`), when it reports a `link` artifact with `role: tracker`
+            (channel.schema.json `Artifact`); a later report from that quest replaces it. Any other
+            quest's tracker report is refused. New in 0.7.0.
         archived: { type: boolean }
         counts:
           type: object
@@ -2880,15 +2919,19 @@ components:
     PairingCode:
       type: string
       description: |
-        What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`.
-        The app keeps `hub` as its server URL and posts `code` to `/pair` on it.
-      pattern: '^marcel://pair\?hub=[^&]+&code=[A-Z0-9]{6,12}$'
+        What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`,
+        plus `&buddy=<agent id>` when the code names the buddy the new phone starts on (0.8.0). The
+        app keeps `hub` as its server URL and posts `code` to `/pair` on it.
+      pattern: '^marcel://pair\?hub=[^&]+&code=[A-Z0-9]{6,12}(&buddy=[A-Za-z0-9_-]+)?$'
       example: marcel://pair?hub=https%3A%2F%2Fmarcel-bot.com%2Fapi&code=K7Q2M9
 
     PushNotification:
       type: object
       description: |
-        The payload of every push, the same for APNs and ntfy (B-16, B-18). On APNs, `title` and
+        The payload of every push, the same for APNs and ntfy (B-16, B-18). Through the push relay
+        (0.8.0) the hub sends `title`, `body`, `deep_link` (as `link`), `category` and the buddy as
+        a `SealedPushContent`, sealed for the phone (`SealedPush`), and `level` as the relay's
+        `urgent`. On APNs, `title` and
         `body` go in `aps.alert`, `category` is the APNs category, `collapse_key` is
         `apns-collapse-id`, and the rest sits beside `aps`. On ntfy they map to Title, the message,
         Tags and a Click action set to `deep_link`.
@@ -2942,6 +2985,82 @@ components:
         collapse_key: tsk_01J9ZQ6
         task_id: tsk_01J9ZQ6
         approval_id: apr_01J9ZR2
+
+    SealedPush:
+      type: object
+      description: |
+        A notification sealed for one phone, which the hub sends through the push relay
+        (`push-relay.yaml` `POST /v1/push`) and the phone's Notification Service Extension opens.
+        The relay sees only these bytes; it never has a key that opens them. New in 0.8.0.
+
+        How the hub seals `SealedPushContent` for a phone whose `PushTarget.device_key` is `D`:
+        1. Make a fresh X25519 key pair for this push; `eph` is its public key. `shared` = X25519
+           of that private key with `D`.
+        2. `key` = HKDF-SHA256 over `shared`, salt the 64 bytes `eph ‖ D`, info the ASCII bytes
+           `marcel-push-v1`, 32 bytes out.
+        3. `box` = ChaCha20-Poly1305 with `key`, a fresh random 12-byte `nonce`, associated data
+           the ASCII bytes `marcel-push-v1`, over the UTF-8 JSON of `SealedPushContent`: the
+           ciphertext followed by the 16-byte tag.
+
+        `eph`, `nonce` and `box` are base64url without padding. The phone does the same with its
+        private key and `eph`; a box that does not open is dropped and the phone shows nothing.
+        `contracts/tests/fixtures/sealed-push/vector.json` is a known-answer vector with fixed test
+        keys, for the hub's and the app's tests.
+      required: [v, eph, nonce, box]
+      additionalProperties: false
+      properties:
+        v:
+          const: 1
+          description: The sealing scheme above. A phone drops a version it does not know.
+        eph:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          description: The hub's one-time X25519 public key, 32 bytes.
+        nonce:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{16}$'
+          description: 12 random bytes.
+        box:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22,}$'
+          maxLength: 2700
+          description: Ciphertext and the 16-byte tag. The relay refuses a push over 3 KB.
+      example:
+        v: 1
+        eph: v7px1ONb5JHvx-TbJRP_rbBg-ZXscLCXlhlyV4X-jBc
+        nonce: LMmDNiZF6G2zWF-M
+        box: T5yBwnhfhVQsOsjfAboIzrEdSeZ6Os7E1Bp1zwDDI7d5Trz3TexciQlrCA0O7e1kml0QXm5UzlBr7F2csdBbnwtZuRWn5c67bPMaQS0sL45EZ_dE1IA-yV6Hz02XcKQTUXsG0YqlnnkwLWIeWrKJC6iyCKwffFWqBaZ6FPBKDF8Br3bwB7CNxql0bicKihz6du-IVFlggHKWQBBI4JDSmh5jiACx175KlRKf50w0Dw
+
+    SealedPushContent:
+      type: object
+      description: |
+        What a `SealedPush` holds: the notification the phone shows. New in 0.8.0.
+      required: [title, body, link]
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 80 }
+        body: { type: string, maxLength: 300 }
+        link:
+          type: string
+          description: Where a tap goes, as `PushNotification.deep_link`.
+          pattern: '^marcel://((task|message|approval|artifact)/[A-Za-z0-9_-]+|project/[a-z0-9][a-z0-9-]{0,39}|status)$'
+        agent_id:
+          type: string
+          description: |
+            The buddy the notice is about; the app opens that buddy on a tap. Absent for a notice
+            about Marcel as a whole (redeploy, backup, usage, logged out), which every phone gets.
+        category:
+          type: string
+          enum: [approval, task, broke, digest, note]
+          description: |
+            As `PushNotification.category`. The extension sets it as the notification's category,
+            so an `approval` shows Approve and Deny.
+      example:
+        title: Pip needs you
+        body: 'Allow `npm install` in garden-planner?'
+        link: marcel://approval/apr_01J9ZR2
+        agent_id: agt_01JA3E2
+        category: approval
 
     UsageWindow:
       type: object

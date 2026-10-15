@@ -44,7 +44,7 @@ def login_schema() -> dict[str, Any]:
 
 
 def test_the_version_was_bumped() -> None:
-    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.13'
+    assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'  # 0.1.14 in S-02.13
 
 
 def test_login_is_optional_so_an_older_runner_still_fits(registry: Registry) -> None:

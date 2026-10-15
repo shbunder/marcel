@@ -56,7 +56,7 @@ channel server                                   hub
 | `permission_decision` | `notifications/claude/channel/permission` `{request_id, behavior}` |
 | Claude Code's `notifications/claude/channel/permission_request` | → `permission_request` frame, fields unchanged |
 | the `reply` tool call | → `reply` frame; the tool returns when `call_ack` arrives (or after 10 s with "queued"); a `call_ack` with `error` returns as a tool error carrying its code and message. `in_reply_to` names the user message being answered; the hub stores it so the app can quote that message (0.7, B-41) |
-| the `report` tool call | → `report` frame; same. `report(note)` (0.6) stores one fact in the project's notes (session-api.yaml `Report`). `report(artifact)` with a `link` and `role: tracker` (0.7) sets the project's tracker (app-api.yaml `Project.tracker_url`, B-46) |
+| the `report` tool call | → `report` frame; same. `report(note)` (0.6) stores one fact in the project's notes (session-api.yaml `Report`). `report(artifact)` with a `link` and `role: tracker` (0.7) sets the project's tracker (app-api.yaml `Project.tracker_url`, B-46); since app API 0.8.0 only a claude.ai artifact url, and only from the project's kickoff quest (brain-api.yaml `NewTask.kickoff`); any other gets an error ack |
 
 `meta` keys must be identifiers (letters, digits, underscores): Claude Code silently drops other keys.
 

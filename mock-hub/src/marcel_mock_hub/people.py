@@ -1,7 +1,8 @@
-"""People (B-37): the owner, Emma from the contract's `User` example, and whose a token is.
+"""People (B-37): the owner, Emma (app-api 0.7's `User` example), and whose a token is.
 
-Any token the mock did not hand out is the owner's, as before. A phone paired with a code from
-`POST /users/{user_id}/pairing-codes` gets a token that belongs to that person.
+Any token the mock did not hand out is the owner's, as before. app-api 0.8.0 (S-02.13) removed
+the people routes, so only `POST /pairing-codes` (the owner's codes) is still reached here;
+S-02.15 replaces this module with buddies.
 """
 
 from __future__ import annotations
@@ -17,6 +18,20 @@ if TYPE_CHECKING:
     from .hub import Hub
 
 PAIRING_MINUTES = 10
+# app-api 0.7's `User` example; 0.8.0 removed the schema with the people model (ADR-013).
+EMMA: dict[str, Any] = {
+    'id': 'usr_01JA3E1',
+    'name': 'Emma',
+    'role': 'member',
+    'created_at': '2026-10-13T17:20:00Z',
+    'agent': {
+        'id': 'agt_01JA3E2',
+        'name': 'Pip',
+        'look': {'animal': 'fox', 'color': 'tangerine', 'personality': 'cheerful'},
+    },
+    'device_count': 1,
+    'quests_this_week': 3,
+}
 
 
 def avatar_etag(agent: dict[str, Any]) -> str | None:
@@ -48,7 +63,7 @@ class People:
         self.tokens: dict[str, tuple[str, str]] = {}  # token -> (user id, device id)
         self.revoked: set[str] = set()  # tokens of people who were removed: always a 401
         self.codes: dict[str, str | None] = {}  # pairing code -> user id; None once used
-        emma = contract.example('User')
+        emma = copy.deepcopy(EMMA)
         self.users[emma['id']] = emma
         # Emma's helper as the `agent.updated` example shows it, but before "Meet your helper":
         # Emma was just added and has not opened the app, so her first sign-in shows onboarding.
@@ -125,7 +140,6 @@ class People:
         me.update(
             user_id=user['id'],
             name=user['name'],
-            role=user['role'],
             agents=[self.agent(user['agent']['id'])],
         )
         if token in self.tokens:
@@ -151,7 +165,7 @@ class People:
         """A member with their own helper and main conversation. Without a look, the helper
         gets the `User` example's."""
         stamp = now()
-        look = body['agent'].get('look') or contract.example('User')['agent']['look']
+        look = body['agent'].get('look') or EMMA['agent']['look']
         owner_agent = self.hub.agent_record
         agent = {
             'id': self.hub.next_id('agt'),

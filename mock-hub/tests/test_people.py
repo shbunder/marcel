@@ -1,14 +1,12 @@
-"""People, pairing a member's phone, owner-only routes, quoted replies, mentions and look changes
-(contract 0.7: B-37, B-41, B-42, B-44), driven in order over HTTP and the WebSocket."""
+"""People, quoted replies, mentions and look changes (contract 0.7: B-37, B-41, B-42, B-44), driven
+in order over HTTP and the WebSocket. The people routes are gone since app-api 0.8.0 (S-02.13)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from conftest import AUTH, frames_until
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
 from marcel_mock_hub import contract
 
@@ -34,114 +32,15 @@ def as_member(token: str) -> dict[str, str]:
 
 
 def pair_emma(client: TestClient) -> str:
-    code = client.post(f'/api/users/{EMMA}/pairing-codes').json()['code']
+    """A phone of Emma's. app-api 0.8.0 (S-02.13) removed the route that made her code, so the test
+    asks the mock directly; S-02.15 replaces Emma with a second buddy."""
+    code = client.app.state.hub.people.issue_code(EMMA)['code']  # type: ignore[attr-defined]
     resp = client.post('/api/pair', json={'code': code, 'device_name': "Emma's iPhone"}, headers={})
     return resp.json()['token']
 
 
-def test_the_people_steps_in_order(client: TestClient):
-    with client.websocket_connect('/api/ws', headers=AUTH) as ws:
-        assert ws.receive_json()['type'] == 'hello'
-
-        # 1. The owner's People screen: the owner first, then Emma.
-        users = valid(client.get('/api/users'), '/users', 'get')
-        assert [(u['name'], u['role']) for u in users] == [('Shaun', 'owner'), ('Emma', 'member')]
-        assert users[1]['agent']['name'] == 'Pip'
-
-        # 2. The owner adds a member; without a look the helper gets the example's.
-        added = valid(
-            client.post('/api/users', json={'name': 'Lou', 'agent': {'name': 'Bo'}}),
-            '/users',
-            'post',
-        )
-        assert added['role'] == 'member' and added['agent']['look']['animal'] == 'fox'
-        names = [u['name'] for u in client.get('/api/users').json()]
-        assert names == ['Shaun', 'Emma', 'Lou']
-
-        # 3. A pairing code for Emma's phone, and the phone pairs to her.
-        path = '/users/{user_id}/pairing-codes'
-        issued = valid(client.post(f'/api/users/{EMMA}/pairing-codes'), path, 'post')
-        assert issued['code'] in issued['link']
-        paired = valid(
-            client.post(
-                '/api/pair',
-                json={'code': issued['code'], 'device_name': "Emma's iPhone"},
-                headers={},
-            ),
-            '/pair',
-            'post',
-        )
-        assert paired['user_id'] == EMMA
-        emma = as_member(paired['token'])
-
-        # 4. The code works once.
-        again = client.post(
-            '/api/pair', json={'code': issued['code'], 'device_name': 'Another phone'}, headers={}
-        )
-        assert valid(again, '/pair', 'post')['code'] == 'bad_request'
-
-        # 5. Emma sees her own helper and nothing of the owner's.
-        me = valid(client.get('/api/me', headers=emma), '/me', 'get')
-        assert (me['user_id'], me['role'], me['device_id']) == (EMMA, 'member', paired['device_id'])
-        assert [a['id'] for a in me['agents']] == [PIP]
-        assert client.get('/api/agents/agt_marcel', headers=emma).status_code == 404
-        assert client.get('/api/projects', headers=emma).json() == []
-        assert client.get('/api/tasks', headers=emma).json()['items'] == []
-        assert client.get('/api/tasks/tsk_01J9ZQ6', headers=emma).status_code == 404
-        conversations = client.get('/api/conversations', headers=emma).json()
-        assert [c['agent_id'] for c in conversations] == [PIP]
-        assert client.get(MAIN, headers=emma).status_code == 404
-
-        # 6. A member gets 403 on every owner-only route, with a plain message.
-        for method, url, spec in (
-            ('get', '/api/users', '/users'),
-            ('post', '/api/users', '/users'),
-            ('delete', f'/api/users/{EMMA}', '/users/{user_id}'),
-            ('post', f'/api/users/{EMMA}/pairing-codes', path),
-        ):
-            body = {'name': 'X', 'agent': {'name': 'Y'}} if spec == '/users' else None
-            resp = client.request(method.upper(), url, headers=emma, json=body)
-            assert resp.status_code == 403, url
-            error = valid(resp, spec, method)
-            assert error['code'] == 'owner_only'
-            assert 'Ask Shaun' in error['message']
-
-        # 7. Emma finishes onboarding and changes her helper's look: `agent.updated`, on her
-        # own phone's stream only.
-        with client.websocket_connect('/api/ws', headers=emma) as emma_ws:
-            assert emma_ws.receive_json()['type'] == 'hello'
-            client.patch(f'/api/agents/{PIP}', json={'look': LOOK, 'onboarded': True}, headers=emma)
-            frame = frames_until(emma_ws, ('agent.updated', None))[-1]
-        agent = frame['data']['agent']
-        assert (agent['id'], agent['animal'], agent['look']) == (PIP, 'panda', LOOK)
-        assert frame['data']['avatar_etag'] == '"lk-panda-teal-cozy"'
-        avatar = client.get(f'/api/agents/{PIP}/avatar', headers=emma)
-        assert avatar.headers['etag'] == frame['data']['avatar_etag']
-        assert client.get('/api/users').json()[1]['agent']['look'] == LOOK
-
-        # 8. The owner removes Emma: her phone is signed out at once.
-        assert client.delete(f'/api/users/{EMMA}').status_code == 204
-        assert client.get('/api/me', headers=emma).status_code == 401
-        with pytest.raises(WebSocketDisconnect), client.websocket_connect('/api/ws', headers=emma):
-            pass
-        assert [u['name'] for u in client.get('/api/users').json()] == ['Shaun', 'Lou']
-
-
-def test_the_owner_cannot_be_removed_and_unknown_people_are_404(client: TestClient):
-    owner = client.delete('/api/users/usr_owner')
-    assert valid(owner, '/users/{user_id}', 'delete')['code'] == 'cannot_remove_owner'
-    gone = client.delete('/api/users/usr_nobody')
-    assert valid(gone, '/users/{user_id}', 'delete')['code'] == 'user_not_found'
-    code = client.post('/api/users/usr_nobody/pairing-codes')
-    assert valid(code, '/users/{user_id}/pairing-codes', 'post')['code'] == 'user_not_found'
-
-
-def test_a_removed_persons_code_no_longer_pairs(client: TestClient):
-    code = client.post(f'/api/users/{EMMA}/pairing-codes').json()['code']
-    client.delete(f'/api/users/{EMMA}')
-    resp = client.post('/api/pair', json={'code': code, 'device_name': 'x phone'}, headers={})
-    assert resp.status_code == 400
-    assert 'removed' in resp.json()['message']
+# Retired by app-api 0.8.0 (S-02.13, ADR-013): the owner's People screen (`/users…`), owner-only
+# refusals and per-person isolation went with the people model. S-02.15 replaces them with buddies.
 
 
 def test_the_owner_changes_marcels_look(client: TestClient):
@@ -152,11 +51,8 @@ def test_the_owner_changes_marcels_look(client: TestClient):
         frame = frames_until(ws, ('agent.updated', None))[-1]
         assert frame['data']['agent']['look'] == LOOK
     me = client.get('/api/me').json()
-    assert (me['role'], me['agents'][0]['name'], me['agents'][0]['look']) == (
-        'owner',
-        'Marcella',
-        LOOK,
-    )
+    assert 'role' not in me  # app-api 0.8.0: one person, no roles
+    assert (me['agents'][0]['name'], me['agents'][0]['look']) == ('Marcella', LOOK)
     assert me['agents'][0]['state']['kind'] == 'idle'
 
 
@@ -353,20 +249,16 @@ def test_a_task_moves_only_into_the_callers_own_project(client: TestClient):
     assert 'project' in resp.json()['message']
 
 
-def test_a_self_change_card_is_answered_by_the_owner_only(client: TestClient):
+def test_any_phone_answers_a_self_change_card(client: TestClient):
+    """app-api 0.8.0 (ADR-013): the owner-only rule for self-change cards went with the people
+    model."""
     hub = client.app.state.hub  # type: ignore[attr-defined]
     emma = as_member(pair_emma(client))
-    # A self-change card on a task of Emma's own helper: still the owner's to answer.
     hub.tasks['tsk_emma'] = {**hub.tasks['tsk_01J9ZQ6'], 'id': 'tsk_emma', 'agent_id': PIP}
     card = {**hub.approvals['apr_01J9ZR2'], 'id': 'apr_self', 'tool': 'self_change'}
     card.update(task_id='tsk_emma', artifact_id='art_01J9ZT1')  # the PR it is about (B-24)
     hub.approvals['apr_self'] = card
     resp = client.post('/api/approvals/apr_self', json={'decision': 'approve'}, headers=emma)
-    error = valid(resp, '/approvals/{approval_id}', 'post')
-    assert (resp.status_code, error['code']) == (403, 'owner_only')
-    assert 'Ask Shaun' in error['message']
-    assert hub.approvals['apr_self']['state'] == 'open'
-    resp = client.post('/api/approvals/apr_self', json={'decision': 'approve'})
     assert valid(resp, '/approvals/{approval_id}', 'post')['state'] == 'approved'
 
 

@@ -262,7 +262,8 @@ async def list_approvals(hub: Hub, request: Request) -> Response:
 
 
 async def answer_approval(hub: Hub, request: Request) -> Response:
-    """Only the caller's own cards; a self-change card (B-24) is the owner's alone."""
+    """Only the caller's own cards; the owner also answers every self-change card (B-24). Since
+    app-api 0.8.0 any paired phone may answer a self-change card (ADR-013)."""
     approval = hub.approvals.get(request.path_params['approval_id'])
     if approval is None:
         return not_found('approval')
@@ -271,10 +272,6 @@ async def answer_approval(hub: Hub, request: Request) -> Response:
     # Someone else's card is unknown, except that the owner answers every self-change card.
     if hub.task_agent(approval['task_id']) != my_agent(request) and not (owner and self_change):
         return not_found('approval')
-    if self_change and not owner:
-        raise hub.people.owner_only(
-            'Only {owner} can approve a change to Marcel itself. Ask {owner} to look at it.'
-        )
     body = json.loads(await request.body())
     result = hub.answer(approval['id'], body['decision'])
     assert result is not None
@@ -385,7 +382,9 @@ async def remove_user(hub: Hub, request: Request) -> Response:
 
 
 async def create_pairing_code(hub: Hub, request: Request) -> Response:
-    return JSONResponse(hub.people.issue_code(request.path_params['user_id']), status_code=201)
+    """`POST /pairing-codes` (app-api 0.8.0): a code for the owner's next phone."""
+    user_id = request.path_params.get('user_id', hub.people.owner_id)
+    return JSONResponse(hub.people.issue_code(user_id), status_code=201)
 
 
 async def get_health(hub: Hub, request: Request) -> Response:

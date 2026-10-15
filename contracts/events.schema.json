@@ -25,6 +25,7 @@
         { "$ref": "#/$defs/BrainRollover" },
         { "$ref": "#/$defs/AgentStateChanged" },
         { "$ref": "#/$defs/AgentUpdated" },
+        { "$ref": "#/$defs/DeviceUpdated" },
         { "$ref": "#/$defs/UsageUpdated" }
       ]
     },
@@ -402,7 +403,7 @@
       ]
     },
     "AgentUpdated": {
-      "description": "An agent's name, look or onboarding changed (app-api.yaml `PATCH /agents/{agent_id}`, new in 0.7.0). `avatar_etag` is the new `ETag` of `GET /agents/{agent_id}/avatar`; reload the sheet when it differs from the one cached. It is absent while the hub builds no avatar sheets.",
+      "description": "A buddy's name, look or onboarding changed (app-api.yaml `PATCH /agents/{agent_id}`, new in 0.7.0), or a buddy was added (`POST /agents`) or archived (`POST /agents/{agent_id}/archive`, `agent.archived_at` set), both new in app API 0.8.0. An `agent` the app does not know yet is a new buddy. `avatar_etag` is the new `ETag` of `GET /agents/{agent_id}/avatar`; reload the sheet when it differs from the one cached. It is absent while the hub builds no avatar sheets.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "properties": {
         "type": { "const": "agent.updated" },
@@ -429,6 +430,24 @@
               "model_brain": "opus", "model_worker": "sonnet"
             },
             "avatar_etag": "\"lk-3f9a2c71\""
+          }
+        }
+      ]
+    },
+    "DeviceUpdated": {
+      "description": "A phone's buddy changed (app-api.yaml `PATCH /devices/{device_id}`, or the hub moved it off an archived buddy). Carries the whole `Device`; a phone whose own `id` it is switches to `agent_id`. New in app API 0.8.0.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "properties": {
+        "type": { "const": "device.updated" },
+        "data": { "$ref": "app-api.yaml#/components/schemas/Device" }
+      },
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "id": 2402, "type": "device.updated", "at": "2026-10-15T19:02:00Z",
+          "data": {
+            "id": "dev_01J9ZQ4K2B", "name": "Shaun's iPhone", "created_at": "2026-10-04T18:02:11Z",
+            "agent_id": "agt_01JA3E2", "push": "relay"
           }
         }
       ]

@@ -1,0 +1,22 @@
+{
+  "about": "Known-answer vector for app-api.yaml SealedPush (S-02.13). Fixed test keys: never use them for anything real.",
+  "device_private_key": "C9WFwQIJbBjZEtOHxcegcKgHCZhhb7rUoO5Xueibr9g",
+  "device_key": "njCdIc2oG-JgfnBbP2hZZXoNELO71-teMzDch9iRfBs",
+  "eph_private_key": "z2cI6xIYqDNzmG0Z0yepUzMUWnhwrcDDYg3sWiVlGFc",
+  "shared_secret": "0d_7Z-Yu0ts_MTw4v6wNe_jrZsXFs5axEcoJ3wAggVE",
+  "key": "mXitYmsUygdQn6uo5P6A_Y9lPOzSqM4IZlS7hN0_ouY",
+  "plaintext": "{\"title\":\"Pip needs you\",\"body\":\"Allow `npm install` in garden-planner?\",\"link\":\"marcel://approval/apr_01J9ZR2\",\"agent_id\":\"agt_01JA3E2\",\"category\":\"approval\"}",
+  "content": {
+    "title": "Pip needs you",
+    "body": "Allow `npm install` in garden-planner?",
+    "link": "marcel://approval/apr_01J9ZR2",
+    "agent_id": "agt_01JA3E2",
+    "category": "approval"
+  },
+  "sealed": {
+    "v": 1,
+    "eph": "v7px1ONb5JHvx-TbJRP_rbBg-ZXscLCXlhlyV4X-jBc",
+    "nonce": "LMmDNiZF6G2zWF-M",
+    "box": "T5yBwnhfhVQsOsjfAboIzrEdSeZ6Os7E1Bp1zwDDI7d5Trz3TexciQlrCA0O7e1kml0QXm5UzlBr7F2csdBbnwtZuRWn5c67bPMaQS0sL45EZ_dE1IA-yV6Hz02XcKQTUXsG0YqlnnkwLWIeWrKJC6iyCKwffFWqBaZ6FPBKDF8Br3bwB7CNxql0bicKihz6du-IVFlggHKWQBBI4JDSmh5jiACx175KlRKf50w0Dw"
+  }
+}

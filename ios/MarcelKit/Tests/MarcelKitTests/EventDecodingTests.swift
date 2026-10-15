@@ -37,8 +37,15 @@ final class EventDecodingTests: XCTestCase {
                 "Hello", "ResyncRequired", "MessageCreated", "ConversationCreated", "TaskCreated", "TaskUpdated",
                 "TaskEventAppended", "ApprovalCreated", "ApprovalResolved", "ArtifactCreated", "AgentStateChanged",
                 "UsageUpdated", "ArtifactUpdated", "ProjectCreated", "ProjectUpdated", "TaskMoved", "ArtifactMoved",
-                "BrainRollover", "AgentUpdated",
+                "BrainRollover", "AgentUpdated", "DeviceUpdated",
             ])
+    }
+
+    func testDeviceUpdatedNamesThePhoneAndItsBuddy() throws {
+        let frame = try EventFrame.decode(try Frames.contractExample("DeviceUpdated"))
+        guard case .deviceUpdated(let deviceId, let agentId) = frame.event else { return XCTFail("\(frame.event)") }
+        XCTAssertEqual(deviceId, "dev_01J9ZQ4K2B")
+        XCTAssertEqual(agentId, "agt_01JA3E2")
     }
 
     func testAgentUpdatedCarriesTheWholeAgentAndTheAvatarEtag() throws {

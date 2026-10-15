@@ -246,10 +246,10 @@
         "path": { "type": "string", "description": "Absolute path on the NUC, for doc, file and dashboard." },
         "artifact_id": { "type": "string", "description": "Publish a new version of this artifact instead of a new one (B-34). The hub answers an unknown id, or one from another project, with an error ack." },
         "summary": { "type": "string", "maxLength": 200, "description": "What changed in this version, in one line." },
-        "role": { "enum": ["tracker"], "description": "New in 0.7. `tracker`: this `link` is the project's tracker (B-46); the hub sets the task's project's app-api.yaml `Project.tracker_url` to `url`, replacing an earlier one. Only on a `link` with an `https://` url." }
+        "role": { "enum": ["tracker"], "description": "New in 0.7. `tracker`: this `link` is the project's tracker (B-46); the hub sets the task's project's app-api.yaml `Project.tracker_url` to `url`, replacing an earlier one. Only on a `link` whose url is a claude.ai artifact (`https://claude.ai/artifact/<id>` or `https://claude.ai/code/artifact/<id>`), and only from the project's kickoff quest (brain-api.yaml `NewTask.kickoff`); the hub answers any other with an error ack and keeps the tracker it had (app API 0.8.0)." }
       },
       "allOf": [
-        { "if": { "required": ["role"] }, "then": { "properties": { "kind": { "const": "link" }, "url": { "pattern": "^https://" } } } },
+        { "if": { "required": ["role"] }, "then": { "properties": { "kind": { "const": "link" }, "url": { "pattern": "^https://claude\\.ai/(code/)?artifact/[A-Za-z0-9_-]+$" } } } },
         { "if": { "properties": { "kind": { "enum": ["pr", "branch", "link"] } } }, "then": { "required": ["url"] } },
         { "if": { "properties": { "kind": { "enum": ["doc", "file", "dashboard"] } } }, "then": { "required": ["path"] } }
       ]
