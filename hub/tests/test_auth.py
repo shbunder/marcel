@@ -12,13 +12,14 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from sqlmodel import Session, select
+from test_contract import RETIRED_FIELDS, served_contract
 
 from marcel_hub.app import Settings, create_app
 from marcel_hub.auth import current_device, tokens
 from marcel_hub.models import Agent, Device, PairingCode, utcnow
 
 CONTRACT = Path(__file__).resolve().parents[2] / 'contracts' / 'app-api.yaml'
-SPEC = yaml.safe_load(CONTRACT.read_text())
+SPEC = served_contract(yaml.safe_load(CONTRACT.read_text()))  # S-02.13: as the hub serves it
 REGISTRY = Registry().with_resource(
     'urn:contract',
     Resource.from_contents(SPEC | {'$schema': 'https://json-schema.org/draft/2020-12/schema'}),
@@ -286,6 +287,17 @@ def test_me_matches_the_contract(client: TestClient) -> None:
     assert body['user_id'] == tokens.OWNER_USER_ID
     assert [a['name'] for a in body['agents']] == ['Marcel']
     assert body['push'] == {'apns': False, 'ntfy': False}
+
+
+def test_retired_fields_are_still_sent(client: TestClient) -> None:
+    """test_contract.RETIRED_FIELDS lists what app-api 0.8.0 removed and the hub still sends; an
+    entry the hub stopped sending must leave the list, so the response checks tighten."""
+    me = pair(client)
+    body = client.get('/api/me', headers=bearer(me['token'])).json()
+    for field, story in RETIRED_FIELDS['Me'].items():
+        assert field in body, (
+            f'/me no longer sends {field} ({story}): remove it from RETIRED_FIELDS'
+        )
 
 
 def test_devices_lists_this_users_devices_newest_first(client: TestClient) -> None:

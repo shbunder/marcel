@@ -62,6 +62,12 @@ live) and **Inbox** (`prj_inbox`, always last on the map). Every task and every 
 
 ## People and chat clarity (contract 0.7)
 
+**app-api 0.8.0 (S-02.13) removed the people routes.** The mock builds its routes from the contract, so
+`/api/users…` and the owner-only refusals are gone; `POST /api/pairing-codes` gives the owner's next
+phone a code. The new 0.8.0 routes answer with the contract's examples. S-02.15 replaces the member
+scenario below with two buddies; until then the mock keeps Emma's records, but no route pairs a
+phone to her any more.
+
 Two people are there from the start: the owner **Shaun** (`usr_owner`, helper Marcel) and **Emma**
 (`usr_01JA3E1`, helper Pip, `agt_01JA3E2`), from the contract's `Me`, `User` and `agent.updated`
 examples.
@@ -70,8 +76,6 @@ examples.
   /api/users/{user_id}/pairing-codes` gives a one-time code (`MOCK01`, `MOCK02`, ...); `POST /api/pair`
   with it pairs the phone to that person and returns their own token. A used code is a 400. Any other
   code still pairs to the owner.
-- **Owner-only routes** (`x-owner-only` in the contract: list, add and remove people, pairing codes)
-  answer a member with 403 `owner_only`: "Only Shaun can manage people. Ask Shaun to do it."
 - **Each person sees their own.** `/me`, agents, conversations, messages, tasks, projects, items,
   approvals and mentions are the caller's own agent's; someone else's answers 404, or an empty list.
   Emma starts with her own main conversation and nothing else. Actions by id on someone else's task,

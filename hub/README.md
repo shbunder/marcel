@@ -162,7 +162,8 @@ Family members are added from the owner's app: `POST /api/users` makes the perso
 and their own agent, main conversation and Inbox; `POST /api/users/{id}/pairing-codes` makes a code
 that pairs a phone to them; `DELETE /api/users/{id}` signs out their phones at once, stops their
 quests and archives their agent (their chats and notes stay; the owner cannot be removed, 409). All
-four are owner-only (`x-owner-only` in the contract; `require_owner` in `auth/deps.py`): a member
+four are owner-only (`require_owner` in `auth/deps.py`; app-api 0.8.0 removed these routes and the
+`x-owner-only` mark, and S-22.11 removes them here): a member
 gets 403 `owner_only`. The pairing link always names `https://marcel-bot.com/api` (the tunnel), like
 `marcel-hub pair`'s default. A member's brain workspace comes with S-17.7; a look picked from the name
 when none is given comes with S-19.2.

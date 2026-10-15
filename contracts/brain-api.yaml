@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.4
+  version: 0.1.5
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -681,6 +681,14 @@ components:
           minLength: 1
           maxLength: 80
           description: The owner's message this answers; must be in the caller's conversation.
+        kickoff:
+          type: boolean
+          description: |
+            This is the project's kickoff quest (the `project-kickoff` skill, B-45). Needs `project`
+            (400 without it). Only a kickoff quest may set or replace the project's tracker
+            (app-api.yaml `Project.tracker_url`, channel.schema.json `Artifact.role`). New in 0.1.5.
+      if: { required: [kickoff], properties: { kickoff: { const: true } } }
+      then: { required: [project] }
       example:
         title: Fix the flaky login test
         prompt: The login test fails one run in five. Find the race and fix it, with a regression test.

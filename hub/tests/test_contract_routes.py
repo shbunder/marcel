@@ -15,7 +15,22 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 
 # App API operations the contract has and the hub does not serve yet, with the work that adds
 # them. The last test fails as soon as one is served, so this list can only shrink.
-PENDING_OPERATIONS: dict[tuple[str, str], str] = {}
+PENDING_OPERATIONS: dict[tuple[str, str], str] = {
+    # app-api 0.8.0 (S-02.13): buddies and a phone's buddy, served by S-22.27.
+    ('POST', '/api/agents'): 'S-22.27',
+    ('POST', '/api/agents/{}/archive'): 'S-22.27',
+    ('PATCH', '/api/devices/{}'): 'S-22.27',
+    ('POST', '/api/pairing-codes'): 'S-22.27',
+}
+# App API operations the contract removed and the hub still serves, with the work that removes
+# them. app-api 0.8.0 (S-02.13, ADR-013) dropped the people model; S-22.11 removes the routes.
+# The last test fails as soon as one is gone, so this list can only shrink.
+RETIRED_OPERATIONS: dict[tuple[str, str], str] = {
+    ('GET', '/api/users'): 'S-22.11',
+    ('POST', '/api/users'): 'S-22.11',
+    ('DELETE', '/api/users/{}'): 'S-22.11',
+    ('POST', '/api/users/{}/pairing-codes'): 'S-22.11',
+}
 # The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
 # with its own `servers`, served at the hub's root). Each list can only shrink.
 PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}
@@ -64,7 +79,8 @@ def test_the_hub_serves_nothing_under_api_the_contract_does_not_name(
     served: set[tuple[str, str]],
 ) -> None:
     contract = contract_routes('app-api.yaml', '/api') | contract_routes('session-api.yaml', '/api')
-    assert under(served, '/api/') - contract == set()
+    assert not set(RETIRED_OPERATIONS) & contract, 'a retired operation is back in the contract'
+    assert under(served, '/api/') - contract - set(RETIRED_OPERATIONS) == set()
 
 
 def test_the_brain_routes_are_exactly_the_brain_api(served: set[tuple[str, str]]) -> None:
@@ -94,3 +110,8 @@ def test_pending_operations_are_still_pending(served: set[tuple[str, str]]) -> N
     for pending in (PENDING_OPERATIONS, PENDING_BRAIN_OPERATIONS, PENDING_SESSION_OPERATIONS):
         now_served = set(pending) & served
         assert not now_served, f'{now_served} are served now: remove them from the pending list'
+
+
+def test_retired_operations_are_still_served(served: set[tuple[str, str]]) -> None:
+    gone = set(RETIRED_OPERATIONS) - served
+    assert not gone, f'{gone} are no longer served: remove them from RETIRED_OPERATIONS'

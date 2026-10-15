@@ -1,7 +1,9 @@
 """The models can represent the contract: enums match, and every contract field has a column."""
 
+import copy
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -35,7 +37,6 @@ def contract_enum(path: tuple[str, ...]) -> list[str]:
         (models.ConversationKind, ('Conversation', 'properties', 'kind')),
         (models.TaskOrigin, ('Task', 'properties', 'origin')),
         (models.AnsweredVia, ('Approval', 'properties', 'answered_via')),
-        (models.UserRole, ('UserRole',)),
     ],
 )
 def test_enum_matches_contract(model_enum: type[StrEnum], path: tuple[str, ...]) -> None:
@@ -60,7 +61,6 @@ DERIVED = {
     'TaskEvent': {'data'},
     'Artifact': {'pr'},
     'Project': {'counts'},
-    'User': {'agent', 'device_count', 'quests_this_week'},
 }
 
 
@@ -70,8 +70,31 @@ DERIVED = {
 # S-04.11 stored the last of them. Contract 0.7 (S-02.7) added more; S-04.15 stored them all (the
 # ones kept under another name are in DERIVED).
 # Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`, stored since (0012).
-# Empty until a contract adds a field.
-PENDING: dict[str, set[str]] = {}
+# Contract 0.8.0 (S-02.13) added the fields below; each names the story that stores it.
+PENDING: dict[str, set[str]] = {
+    'Device': {'agent_id'},  # S-22.11 (the device.agent_id column and its migration)
+}
+# Fields app-api 0.8.0 (S-02.13, ADR-013) removed that the hub still sends, with the story that
+# stops sending them. `served_contract` lets the response checks accept them until then;
+# test_auth.py checks each one is still sent, so this list can only shrink.
+RETIRED_FIELDS: dict[str, dict[str, str]] = {'Me': {'role': 'S-22.11'}}
+
+
+def served_contract(api: dict[str, Any]) -> dict[str, Any]:
+    """app-api.yaml as the hub serves it today: `PENDING` fields are not required yet, and
+    `RETIRED_FIELDS` are still allowed. Each list only shrinks, so the checks only tighten."""
+    api = copy.deepcopy(api)
+    schemas = api['components']['schemas']
+    for schema, fields in PENDING.items():
+        node = schemas[schema]
+        node['required'] = [f for f in node.get('required', []) if f not in fields]
+    for schema, retired in RETIRED_FIELDS.items():
+        for field in retired:
+            assert field not in schemas[schema]['properties'], f'{schema}.{field} is back'
+            schemas[schema]['properties'][field] = {}
+    return api
+
+
 # Contract 0.7.3's workflow event types are stored since S-04.16. Empty until a contract adds
 # a value.
 PENDING_ENUM_VALUES: dict[str, set[str]] = {}
@@ -84,6 +107,7 @@ MODELS = {
     'MessageKind': models.MessageKind,
     'ArtifactKind': models.ArtifactKind,
     'TaskEventType': models.TaskEventType,
+    'Device': models.Device,
 }
 
 
@@ -93,7 +117,7 @@ MODELS = {
         ('Agent', models.Agent), ('Device', models.Device), ('Conversation', models.Conversation),
         ('Message', models.Message), ('Task', models.Task), ('TaskEvent', models.TaskEvent),
         ('Approval', models.Approval), ('Artifact', models.Artifact),
-        ('Schedule', models.Schedule), ('Project', models.Project), ('User', models.User),
+        ('Schedule', models.Schedule), ('Project', models.Project),
     ],
 )  # fmt: skip
 def test_every_contract_field_is_stored_or_derived(schema: str, model: type) -> None:

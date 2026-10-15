@@ -33,6 +33,9 @@ public enum HubEvent: Sendable {
     /// its avatar sheet's new ETag, absent while the hub builds no sheets.
     case agentUpdated(Agent, avatarEtag: String?)
     case usageUpdated(Usage)
+    /// A phone's buddy changed (app API 0.8.0): `deviceId` now shows `agentId`. Only the two ids are read until the app
+    /// picks buddies (S-22.12).
+    case deviceUpdated(deviceId: String, agentId: String)
     /// A type this build does not know yet. Kept so the event id still advances.
     case unknown(type: String)
 
@@ -93,6 +96,11 @@ extension EventFrame {
         let avatar_etag: String?
     }
 
+    private struct DeviceUpdatedData: Decodable {
+        let id: String
+        let agent_id: String
+    }
+
     private struct AgentStateData: Decodable {
         let agent_id: String
         let state: AgentState
@@ -139,6 +147,9 @@ extension EventFrame {
             let update = try payload(AgentUpdatedData.self)
             event = .agentUpdated(update.agent, avatarEtag: update.avatar_etag)
         case "usage.updated": event = .usageUpdated(try payload(Usage.self))
+        case "device.updated":
+            let device = try payload(DeviceUpdatedData.self)
+            event = .deviceUpdated(deviceId: device.id, agentId: device.agent_id)
         default: event = .unknown(type: head.type)
         }
         return EventFrame(id: head.id, at: head.at, event: event)

@@ -1,6 +1,6 @@
 """Contract 0.7 (S-02.7): people, agent looks, quoted replies, mentions, trackers and a brain per
 agent. app-api 0.7.0, runner-api 0.1.9, plus additions to events.schema.json and
-channel.schema.json. All additive."""
+channel.schema.json. All additive. The people part is retired by app-api 0.8.0 (S-02.13)."""
 
 from __future__ import annotations
 
@@ -55,107 +55,33 @@ def refused(validator: Draft202012Validator, instance: Any) -> None:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.7.3'  # 0.7.3 in S-02.11
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.8.0'  # 0.8.0 in S-02.13
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.13'  # 0.1.13 in S-02.12
 
 
 # 1. People --------------------------------------------------------------------------------------
-
-OWNER_ONLY = {
-    ('get', '/users'): 'listUsers',
-    ('post', '/users'): 'addUser',
-    ('delete', '/users/{user_id}'): 'removeUser',
-    ('post', '/users/{user_id}/pairing-codes'): 'createPairingCode',
-}
-
-
-def test_exactly_the_people_operations_are_owner_only() -> None:
-    marked = {
-        (method, path): op['operationId']
-        for method, path, op in operations().values()
-        if op.get('x-owner-only') is True
-    }
-    assert marked == OWNER_ONLY
-    for method, path, op in operations().values():
-        assert op.get('x-owner-only', True) is True, (
-            f'{method} {path}: mark it true or leave it out'
-        )
-
-
-@pytest.mark.parametrize('operation', sorted(OWNER_ONLY.values()) + ['answerApproval'])
-def test_a_member_is_told_403_owner_only(operation: str) -> None:
-    _, _, op = operations()[operation]
-    assert op['responses']['403'] == {'$ref': '#/components/responses/OwnerOnly'}
-    owner_only = load_yaml('app-api.yaml')['components']['responses']['OwnerOnly']
-    assert '`owner_only`' in owner_only['description']
-    assert owner_only['content']['application/json']['schema'] == {
-        '$ref': '#/components/schemas/Error'
-    }
-
-
-def test_self_change_approvals_are_the_owners() -> None:
-    _, _, op = operations()['answerApproval']
-    assert 'x-owner-only' not in op  # members answer their own quests' cards
-    assert '`tool: self_change`' in op['description'] and '`owner_only`' in op['description']
-
-
-def test_the_owner_cannot_be_removed() -> None:
-    _, _, op = operations()['removeUser']
-    assert '204' in op['responses']
-    assert '`cannot_remove_owner`' in op['responses']['409']['description']
-    assert '`user_not_found`' in op['responses']['404']['description']
+# app-api 0.8.0 (S-02.13, ADR-013) removed the people model on purpose: the `/users` routes, `User`,
+# `NewUser`, `UserRole`, `Me.role`, `owner_only` and the owner-only mark. The tests that they exist
+# are retired; test_contract_s02_13.py checks they are gone. What stays from 0.7 is below.
 
 
 def test_new_error_codes_are_named() -> None:
     codes = schema('Error')['properties']['code']['description']
-    for code in ('owner_only', 'user_not_found', 'cannot_remove_owner', 'mention_not_found'):
+    for code in ('mention_not_found',):
         assert f'`{code}`' in codes, code
-
-
-def test_a_user_round_trips(registry: Registry) -> None:
-    user = app('User', registry)
-    user.validate(example('User'))
-    helperless = {k: v for k, v in example('User').items() if k != 'agent'}
-    user.validate(helperless)  # while their helper is being set up
-    no_look = {**example('User'), 'agent': {'id': 'agt_1', 'name': 'Pip'}}
-    user.validate(no_look)
-    refused(user, {**example('User'), 'role': 'admin'})
-    refused(user, {**example('User'), 'device_count': -1})
-    refused(user, {k: v for k, v in example('User').items() if k != 'quests_this_week'})
-    refused(user, {**example('User'), 'agent': {'id': 'agt_1', 'name': 'Pip', 'palette': 'x'}})
-
-
-def test_adding_a_person_names_their_helper(registry: Registry) -> None:
-    new = app('NewUser', registry)
-    new.validate(example('NewUser'))
-    new.validate({'name': 'Emma', 'agent': {'name': 'Pip'}})  # look picked from the name
-    refused(new, {'name': 'Emma'})
-    refused(new, {'name': '', 'agent': {'name': 'Pip'}})
-    refused(new, {'name': 'Emma', 'agent': {'name': 'Pip'}, 'role': 'owner'})
-    _, _, op = operations()['addUser']
-    assert op['requestBody']['content']['application/json']['schema'] == {
-        '$ref': '#/components/schemas/NewUser'
-    }
 
 
 def test_a_pairing_code_comes_as_a_code_and_a_link(registry: Registry) -> None:
     issued = app('IssuedPairingCode', registry)
     body = example('IssuedPairingCode')
     issued.validate(body)
-    assert body['link'].endswith('&code=' + body['code'])
+    assert '&code=' + body['code'] in body['link']
     refused(issued, {**body, 'link': 'https://marcel-bot.com/pair'})
     refused(issued, {k: v for k, v in body.items() if k != 'expires_at'})
     _, _, op = operations()['createPairingCode']
     assert op['responses']['201']['content']['application/json']['schema'] == {
         '$ref': '#/components/schemas/IssuedPairingCode'
     }
-
-
-def test_me_says_whether_this_is_the_owner(registry: Registry) -> None:
-    me = app('Me', registry)
-    me.validate(example('Me'))  # optional in 0.7
-    me.validate({**example('Me'), 'role': 'member'})
-    refused(me, {**example('Me'), 'role': 'admin'})
 
 
 # 2. Agent looks ----------------------------------------------------------------------------------
@@ -212,8 +138,7 @@ def test_a_look_from_the_hub_is_open_so_old_apps_still_read_it(registry: Registr
 
 
 def test_what_the_hub_accepts_stays_strict() -> None:
-    new_user = schema('NewUser')['properties']['agent']['properties']['look']
-    assert new_user['$ref'] == '#/components/schemas/NewLook'
+    assert schema('NewAgent')['properties']['look']['$ref'] == '#/components/schemas/NewLook'
     assert schema('AgentUpdate')['properties']['look']['$ref'] == '#/components/schemas/NewLook'
     preview = load_yaml('app-api.yaml')['paths']['/avatar-previews']['get']['parameters']
     assert [p['schema']['$ref'].rsplit('/', 1)[1] for p in preview[:3]] == [
@@ -377,7 +302,7 @@ def test_mentions_are_searched_at_most_twenty() -> None:
     listing = op['responses']['200']['content']['application/json']['schema']
     assert listing['maxItems'] == 20
     assert listing['items'] == {'$ref': '#/components/schemas/Mention'}
-    assert "caller's own" in flat(op['description'])
+    assert 'of every buddy' in flat(op['description'])  # one person since 0.8.0
 
 
 def test_the_channel_mention_is_the_apps_mention(registry: Registry) -> None:
@@ -470,7 +395,6 @@ def test_the_runner_prepares_a_brain_folder(registry: Registry) -> None:
 
 
 def test_every_new_example_is_valid_json_for_its_schema(registry: Registry) -> None:
-    for name in ('User', 'NewUser', 'IssuedPairingCode', 'Look', 'NewLook', 'Mention',
-                 'MentionKind', 'UserRole', 'LookAnimal', 'LookColor', 'LookPersonality',
-                 'Mood'):  # fmt: skip
+    for name in ('IssuedPairingCode', 'Look', 'NewLook', 'Mention', 'MentionKind', 'LookAnimal',
+                 'LookColor', 'LookPersonality', 'Mood'):  # fmt: skip
         app(name, registry).validate(json.loads(json.dumps(example(name))))

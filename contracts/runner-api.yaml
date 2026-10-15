@@ -599,7 +599,10 @@ components:
         message: { type: string }
         detail:
           type: string
-          description: What Claude Code itself said (its error line or job `detail`), when there is one.
+          description: |
+            More on the cause, when there is any: for most errors, what Claude Code or git said
+            (its error line or job `detail`); for `GET /usage` 503 `no_reading`, the cause in
+            plain words (Claude Code's raw output never leaves the runner; it goes to the journal).
       example:
         code: not_trusted
         message: The workspace ~/marcel/workspaces/marcel is not trusted yet. The runner trusts each clone once; re-clone it to retry.

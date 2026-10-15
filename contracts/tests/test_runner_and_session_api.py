@@ -1,4 +1,5 @@
-"""runner-api, session-api and brain-api: valid OpenAPI, every schema exemplified and consistent."""
+"""runner-api, session-api, brain-api and push-relay: valid OpenAPI, every schema exemplified and
+consistent."""
 
 from __future__ import annotations
 
@@ -11,13 +12,13 @@ from jsonschema.exceptions import ValidationError
 from openapi_spec_validator import validate
 from referencing import Registry
 
-DOCS = ('runner-api.yaml', 'session-api.yaml', 'brain-api.yaml')
+DOCS = ('runner-api.yaml', 'session-api.yaml', 'brain-api.yaml', 'push-relay.yaml')
 CASES = [(doc, p, ex) for doc in DOCS for p, ex in schemas_with_examples(load_yaml(doc))]
 
 
 @pytest.mark.parametrize('doc', DOCS)
 def test_spec_is_valid_openapi_3_1(doc: str):
-    # The base URI lets brain-api.yaml's `app-api.yaml#/…` references resolve from disk.
+    # The base URI lets `app-api.yaml#/…` references (brain-api, push-relay) resolve from disk.
     validate(load_yaml(doc), base_uri=(CONTRACTS / doc).as_uri())
 
 

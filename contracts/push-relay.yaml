@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Marcel push relay
+  version: 0.1.0
+  description: |
+    The one service the owner runs for every Marcel install (ADR-013 question 2): a Cloudflare
+    Worker that holds the app's APNs key and passes sealed notifications on to phones. New in
+    S-02.13; built by S-22.14 (`relay/`).
+
+    **Who calls.** The app registers each phone once (`POST /v1/register`) and gives the answer to
+    its own hub (app-api.yaml `PUT /devices/{device_id}/push`, `kind: relay`). The hub then pushes
+    with `POST /v1/push`, carrying that handle's `send_secret` as a bearer token.
+
+    **What the relay keeps:** for each handle, the phone's APNs token, `sha256(send_secret)`, the
+    `sandbox` flag and today's push count. Nothing else: no request body, no notification text, no
+    key. A notification arrives sealed for the phone (app-api.yaml `SealedPush`) and leaves the same
+    bytes inside the APNs payload `{aps: {alert: {title: "Marcel", body: "You have news"},
+    "mutable-content": 1}, sealed: <SealedPush>}`; the phone's Notification Service Extension opens
+    it.
+
+    **Errors** have app-api.yaml's `Error` shape. The codes: `bad_request` (400), `unauthorized`
+    (401), `not_found` (404), `handle_gone` (410), `too_large` (413), `too_many_pushes` (429),
+    `apns_unavailable` (502).
+servers:
+  - url: https://marcel-relay.example.workers.dev
+    description: The owner's relay; its real address is set in the app's build (`MARCEL_RELAY_URL`)
+
+tags:
+  - name: phones
+  - name: hubs
+
+components:
+  securitySchemes:
+    sendSecret:
+      type: http
+      scheme: bearer
+      description: The handle's `send_secret` from `POST /v1/register`.
+
+  responses:
+    BadRequest:
+      description: The request was not valid (code `bad_request`).
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+    Unauthorized:
+      description: |
+        No bearer token, or not this handle's `send_secret` (code `unauthorized`). The same answer
+        for a handle that does not exist, so a caller cannot probe for handles.
+      content:
+        application/json:
+          schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+
+  schemas:
+    Registration:
+      type: object
+      required: [apns_token, sandbox]
+      additionalProperties: false
+      properties:
+        apns_token:
+          type: string
+          pattern: '^[0-9a-fA-F]{64,200}$'
+          description: The phone's APNs device token, hex-encoded, as app-api.yaml `PushTarget.apns_token`.
+        sandbox:
+          type: boolean
+          description: True for a development build (APNs sandbox); TestFlight and App Store builds send false.
+      example: { apns_token: 9f2c4e1a7b3d5f60819a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70, sandbox: false }
+
+    Registered:
+      type: object
+      required: [handle, send_secret]
+      additionalProperties: false
+      properties:
+        handle:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22}$'
+          description: 22 random base64url characters (132 bits), the phone's name at the relay.
+        send_secret:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: |
+            32 random bytes as base64url without padding. Shown once; the relay stores only its
+            SHA-256. The phone hands it to its own hub and to no one else.
+      example: { handle: hY3kQ9vT2mW8pL5xR1nB7c, send_secret: Zk1QbXJ4V2c5dEw3cU5hYjJ5Rk1uVDhvSzZlUjRzVmQ }
+
+    Push:
+      type: object
+      required: [handle, sealed, urgent]
+      additionalProperties: false
+      properties:
+        handle:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22}$'
+        sealed: { $ref: 'app-api.yaml#/components/schemas/SealedPush' }
+        urgent:
+          type: boolean
+          description: |
+            True for approvals and broken things (app-api.yaml `PushNotification.level` `urgent`):
+            APNs priority 10 and `interruption-level: time-sensitive`. False: priority 5, `active`.
+      example:
+        handle: hY3kQ9vT2mW8pL5xR1nB7c
+        urgent: true
+        sealed:
+          v: 1
+          eph: v7px1ONb5JHvx-TbJRP_rbBg-ZXscLCXlhlyV4X-jBc
+          nonce: LMmDNiZF6G2zWF-M
+          box: T5yBwnhfhVQsOsjfAboIzrEdSeZ6Os7E1Bp1zwDDI7d5Trz3TexciQlrCA0O7e1kml0QXm5UzlBr7F2csdBbnwtZuRWn5c67bPMaQS0sL45EZ_dE1IA-yV6Hz02XcKQTUXsG0YqlnnkwLWIeWrKJC6iyCKwffFWqBaZ6FPBKDF8Br3bwB7CNxql0bicKihz6du-IVFlggHKWQBBI4JDSmh5jiACx175KlRKf50w0Dw
+
+    Accepted:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok: { const: true }
+      example: { ok: true }
+
+paths:
+  /v1/register:
+    post:
+      tags: [phones]
+      operationId: registerPhone
+      summary: The app registers a phone and gets a handle and a send secret.
+      description: |
+        Called by the app when push is turned on, and again when its APNs token changes or its hub
+        reports the target gone (app-api.yaml `Device.push` `none`). Each call makes a new handle;
+        the old one stays until it is deleted or APNs reports its token gone.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Registration' }
+      responses:
+        '201':
+          description: Registered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registered' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/push:
+    post:
+      tags: [hubs]
+      operationId: sendPush
+      summary: A hub sends one sealed notification to one phone.
+      description: |
+        The relay checks the bearer against the handle's stored hash, counts the push and hands the
+        sealed bytes, untouched, to APNs. It never logs or stores the body.
+      security:
+        - sendSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Push' }
+      responses:
+        '202':
+          description: Handed to APNs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '410':
+          description: |
+            APNs says the phone's token is gone (code `handle_gone`); the relay has deleted the
+            handle. The hub clears the phone's push target, so the phone registers again.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '413':
+          description: The request body is over 3 KB (code `too_large`). Nothing was sent.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '429':
+          description: |
+            Over 500 pushes today for this handle (code `too_many_pushes`); the count resets at
+            midnight UTC. Nothing was sent.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '502':
+          description: APNs did not take it (code `apns_unavailable`); the hub retries as for its other backends.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+
+  /v1/handles/{handle}:
+    parameters:
+      - name: handle
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[A-Za-z0-9_-]{22}$' }
+    delete:
+      tags: [phones, hubs]
+      operationId: deleteHandle
+      summary: Forget a handle (the phone turned push off, or was revoked).
+      description: The same bearer as `POST /v1/push`. Afterwards a push to it answers 401.
+      security:
+        - sendSecret: []
+      responses:
+        '204': { description: Gone. }
+        '401': { $ref: '#/components/responses/Unauthorized' }

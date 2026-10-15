@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from sqlmodel import Session, select
+from test_contract import served_contract
+from test_contract_routes import RETIRED_OPERATIONS
 
 from marcel_hub import db
 from marcel_hub.app import Settings, create_app, main
@@ -18,12 +20,11 @@ from marcel_hub.auth import tokens
 from marcel_hub.models import Agent, Task, TaskLocation, TaskOrigin, TaskState, User, UserRole
 
 CONTRACT = Path(__file__).resolve().parents[2] / 'contracts' / 'app-api.yaml'
-SPEC = yaml.safe_load(CONTRACT.read_text())
+SPEC = served_contract(yaml.safe_load(CONTRACT.read_text()))  # S-02.13: as the hub serves it
 REGISTRY = Registry().with_resource(
     'urn:contract',
     Resource.from_contents(SPEC | {'$schema': 'https://json-schema.org/draft/2020-12/schema'}),
 )
-METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 EMMA = {
     'name': 'Emma',
     'agent': {
@@ -40,13 +41,12 @@ def validate(schema: str, body: Any) -> None:
 
 
 def owner_only_operations() -> list[tuple[str, str]]:
-    """Every operation the contract marks `x-owner-only`, read from the contract itself, so an
-    owner route added later without `require_owner` fails `test_a_member_gets_403_...`."""
+    """The people operations the hub still guards with `require_owner`. app-api 0.8.0 (S-02.13)
+    removed them and their owner-only mark from the contract; until S-22.11 removes them here they
+    are `test_contract_routes.RETIRED_OPERATIONS`, and the guard keeps its test."""
     return [
-        (method.upper(), path)
-        for path, item in SPEC['paths'].items()
-        for method, op in item.items()
-        if method in METHODS and op.get('x-owner-only')
+        (method, re.sub(r'\{\}', '{user_id}', path.removeprefix('/api')))
+        for method, path in RETIRED_OPERATIONS
     ]
 
 
@@ -103,8 +103,6 @@ def test_the_owner_lists_people_owner_first(client: TestClient) -> None:
     add_emma(client, owner)
     people = client.get('/api/users', headers=owner).json()
     assert [(p['name'], p['role']) for p in people] == [('Shaun', 'owner'), ('Emma', 'member')]
-    for person in people:
-        validate('User', person)
     emma = people[1]
     assert emma['agent']['name'] == 'Pip'
     assert emma['agent']['look'] == EMMA['agent']['look']
@@ -152,7 +150,7 @@ def test_a_member_gets_403_on_every_owner_only_operation(
     assert body['message'] == 'Only Shaun can do this. Ask Shaun to do it.'
 
 
-def test_the_contract_marks_the_four_people_operations_owner_only() -> None:
+def test_the_four_people_operations_are_owner_only() -> None:
     assert sorted(owner_only_operations()) == [
         ('DELETE', '/users/{user_id}'),
         ('GET', '/users'),
