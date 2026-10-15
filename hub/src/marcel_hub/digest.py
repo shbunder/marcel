@@ -35,7 +35,11 @@
 - **Announcing.** When the board has a new version, the hub posts it as a card in the main
   conversation and pushes it (category `digest`, the version's summary as the text). The brain
   adds its one headline line with `reply`.
-- **When the brain does not publish** within `DEADLINE` (it is down, busy or failed), nothing
+- **When the brain is away** (down or restarting, e.g. a Claude Code self-update) the event waits
+  in the outbox and reaches the brain when it is back; `DEADLINE` then counts from that, so no
+  "not written" line is said for a digest the brain never got. After `WAIT_FOR_BRAIN` away, the
+  hub says so once ("Marcel has not been reachable for 3 hours …") and keeps waiting for it.
+- **When the brain does not publish** within `DEADLINE` (it is busy or failed), nothing
   waits on it: the hub logs a warning and posts one plain line of its own in the main
   conversation, with a push, made from the bundle's numbers ("The evening digest was not written
   … In short: 2 approvals wait for you; 3 threads are working."). It never writes the digest itself:
@@ -65,6 +69,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth.tokens import TOKEN_PREFIX
 from marcel_hub.brain_api import NotSetUp
+from marcel_hub.channel.outbox import ChannelOutbox, conversation_target
 from marcel_hub.conversations import ensure_main_conversation, post_message
 from marcel_hub.models import (
     INBOX_SLUG,
@@ -97,6 +102,9 @@ TEXT_MAX = 160  # characters of any title, summary or question
 STALE_AFTER = timedelta(days=3)  # a thread with no activity this long is stale
 WEEK = timedelta(days=7)
 DEADLINE = timedelta(minutes=30)  # the brain publishes within this, or the hub says so
+# While the event still waits in the outbox (the brain is down or restarting), `DEADLINE` counts
+# from when the brain gets it, not from the fire; this long at most, then the hub says so anyway.
+WAIT_FOR_BRAIN = timedelta(hours=3)
 LATE_FOR = timedelta(days=8)  # a late digest is still recognised this long (or until the next)
 TICK_S = 30.0  # seconds between looks for a published digest
 MAX_PER_DAY = 48  # fires of one schedule listed per day, at most
@@ -528,9 +536,12 @@ class Digests:
         state_path: Path | None = None,
         tz: str = DEFAULT_TZ,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        waiting: Callable[[str, str], bool] = lambda _agent_id, _digest_id: False,
     ) -> None:
         self.engine = engine
         self.facts = facts
+        # (agent id, digest id) → the `digest_due` event has not reached the agent's brain yet.
+        self.waiting = waiting
         self.events = events or EventLog(engine)
         self.pusher = pusher
         self.state_path = state_path
@@ -739,8 +750,14 @@ class Digests:
                 else:
                     changed = True
             elif now >= datetime.fromisoformat(p.deadline_at):
-                self._fallback(p)
-                p.late = True
+                undelivered = bool(p.digest_id) and self.waiting(p.agent_id, p.digest_id)
+                if undelivered and now - datetime.fromisoformat(p.fired_at) < WAIT_FOR_BRAIN:
+                    # The brain never got it (down or restarting): Marcel gets its full time
+                    # once it is back, rather than a "not written" line it could not help.
+                    p.deadline_at = iso(now + DEADLINE)
+                else:
+                    self._fallback(p, unreachable=undelivered)
+                    p.late = True
                 kept.append(p)
                 changed = True
             else:
@@ -814,13 +831,16 @@ class Digests:
         if message_id is not None and push:
             self._push(message_id, label, summary, user_id)
 
-    def _fallback(self, p: Pending) -> None:
+    def _fallback(self, p: Pending, unreachable: bool = False) -> None:
         label = BY_DIGEST[p.digest].label
         minutes = int(DEADLINE.total_seconds() // 60)
-        text = (
-            f'The {label} was not written: Marcel did not publish it within {minutes} minutes. '
-            f'In short: {p.headline}'
+        hours = int(WAIT_FOR_BRAIN.total_seconds() // 3600)
+        why = (
+            f'Marcel has not been reachable for {hours} hours; it gets the {label} when it is back'
+            if unreachable
+            else f'Marcel did not publish it within {minutes} minutes'
         )
+        text = f'The {label} was not written: {why}. In short: {p.headline}'
         log.warning('The %s for agent %s was not published in time.', label, p.agent_id)
         message_id, user_id = self._post(
             p.agent_id, role=MessageRole.system, kind=MessageKind.text, body={'text': text}
@@ -886,6 +906,23 @@ class Digests:
         self.answered = answered
 
 
+def undelivered(outbox: ChannelOutbox) -> Callable[[str, str], bool]:
+    """(agent id, digest id) → its `digest_due` is still in the agent's brain's outbox: the
+    brain has not received it (down or restarting). The outbox keeps it until the brain is back."""
+
+    def waiting(agent_id: str, digest_id: str) -> bool:
+        try:
+            target = conversation_target(outbox.main_conversation(agent_id))
+        except LookupError:
+            return False
+        return any(
+            f.get('kind') == 'digest_due' and (f.get('data') or {}).get('digest_id') == digest_id
+            for f in outbox.pending(target)
+        )
+
+    return waiting
+
+
 def install(
     app: FastAPI,
     scheduler: Scheduler,
@@ -896,6 +933,7 @@ def install(
 ) -> Digests:
     """Put the digests on `app.state.digests` and have the scheduler send their events. The app's
     lifespan makes the built-in schedules and starts the loop."""
+    gateway = getattr(app.state, 'channel', None)
     digests = Digests(
         app.state.engine,
         Facts(app.state.engine, usage),
@@ -903,6 +941,7 @@ def install(
         pusher=pusher,
         state_path=data_dir / STATE_FILE,
         tz=tz,
+        waiting=undelivered(gateway.outbox) if gateway is not None else lambda _a, _d: False,
     )
     scheduler.brain_frame = digests.frame
     app.state.brain_ports.digests = digests  # which `in_reply_to` ids the brain may name

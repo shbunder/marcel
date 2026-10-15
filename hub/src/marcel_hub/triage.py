@@ -120,9 +120,13 @@ def task_target(task_id: str | None) -> str:
 
 # A short message that only asks how things stand. Plain words, no model: S-16.2 counts these to
 # see whether a cheaper decision could answer them without a brain turn.
+# A friendly lead-in ("hey, …", "ok so …") may come first; "quick check …" is one on its own
+# (both status questions missed on the NUC on 2026-10-14 began that way).
 STATUS = re.compile(
-    r"^\s*(?:status|any (?:news|updates?)|how(?:'s| is| are) (?:it|things|that|everything)"
-    r"(?: going)?|what(?:'s| is) the status|where are we|(?:is it|are you) done|done yet)\b",
+    r'^\s*(?:(?:hey|hi|so|ok(?:ay)?)\b\W*)*'
+    r"(?:status|any (?:news|updates?)|how(?:'s| is| are) (?:it|things|that|everything)"
+    r"(?: going)?|what(?:'s| is) the status|where are we|(?:is it|are you) done|done yet"
+    r'|(?:a |just a )?quick (?:check|status|update)(?:-in)?)\b',
     re.IGNORECASE,
 )
 STATUS_MAX = 60

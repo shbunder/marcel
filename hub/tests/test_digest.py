@@ -34,7 +34,7 @@ from marcel_hub import digest
 from marcel_hub.app import Settings, SettingsError, create_app, load_settings
 from marcel_hub.auth.tokens import new_token
 from marcel_hub.brain_api import NotSetUp
-from marcel_hub.channel.outbox import ChannelOutbox
+from marcel_hub.channel.outbox import ChannelOutbox, conversation_target
 from marcel_hub.digest import (
     BUILTINS,
     DEADLINE,
@@ -736,3 +736,72 @@ def test_builtin_digests_follow_a_changed_tz_unless_the_owner_edited_them(
                     state_path=tmp_path / digest.STATE_FILE)  # fmt: skip
     again.ensure_builtins()
     assert schedules(engine)[builtin_id('evening', AGENT)].next_run_at == evening_at
+
+
+# The brain down or restarting when a digest is due (NUC, 2026-10-14) -------------------------
+
+
+@pytest.fixture
+def waiting_digests(digests: Digests, frames: ChannelOutbox) -> Digests:
+    digests.waiting = digest.undelivered(frames)  # as `install` wires it
+    return digests
+
+
+def brain_receives_everything(engine: Engine, frames: ChannelOutbox) -> None:
+    """The brain comes back and its session acks every frame waiting for it."""
+    target = conversation_target(frames.main_conversation(AGENT))
+    for f in frames.pending(target):
+        frames.ack(target, f['seq'])
+
+
+def test_a_digest_waits_in_the_outbox_while_the_brain_is_away(
+    engine: Engine, waiting_digests: Digests, sched: Scheduler, frames: ChannelOutbox,
+    clock: Clock,
+) -> None:  # fmt: skip
+    seed(engine)
+    waiting_digests.ensure_builtins()
+    due(engine, 'evening', 'usage')
+    run(sched.tick())
+    (p,) = waiting_digests.pending
+    target = conversation_target(frames.main_conversation(AGENT))
+    queued = [f for f in frames.pending(target) if f.get('kind') == 'digest_due']
+    assert [f['data']['digest_id'] for f in queued] == [p.digest_id]  # delivered when it is back
+
+
+def test_the_deadline_counts_from_when_the_brain_gets_the_digest(
+    engine: Engine, waiting_digests: Digests, sched: Scheduler, frames: ChannelOutbox,
+    clock: Clock, pushes: Pushes,
+) -> None:  # fmt: skip
+    seed(engine)
+    waiting_digests.ensure_builtins()
+    due(engine, 'evening', 'usage')
+    run(sched.tick())
+    clock.go(hours=2)  # the brain is away: no "not written" line it could not help
+    waiting_digests.check()
+    assert messages(engine) == [] and pushes.sent == []
+    brain_receives_everything(engine, frames)
+    clock.go(minutes=29)
+    waiting_digests.check()
+    assert messages(engine) == []  # its full 30 minutes, counted from its return
+    clock.go(minutes=2)
+    waiting_digests.check()
+    (line,) = messages(engine)
+    assert 'Marcel did not publish it within 30 minutes' in line.body_json['text']
+
+
+def test_after_three_hours_away_the_hub_says_so_once(
+    engine: Engine, waiting_digests: Digests, sched: Scheduler, clock: Clock, pushes: Pushes
+) -> None:
+    seed(engine)
+    waiting_digests.ensure_builtins()
+    due(engine, 'evening', 'usage')
+    run(sched.tick())
+    clock.go(hours=3, minutes=1)
+    waiting_digests.check()
+    waiting_digests.check()
+    (line,) = messages(engine)
+    assert line.body_json['text'].startswith(
+        'The evening digest was not written: Marcel has not been reachable for 3 hours; it gets '
+        'the evening digest when it is back. In short: '
+    )
+    assert len(pushes.sent) == 1

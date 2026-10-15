@@ -1024,7 +1024,12 @@ with the plugin's `digest` skill. The hub never writes a digest itself.
   version.
   When it gets a new version, the hub posts it as a card in the main conversation and pushes it
   (category `digest`, the version's summary as the text). The brain adds its one-line headline.
-- **When the brain does not publish within 30 minutes** (down, busy or failed), the hub logs a
+- **When the brain is away when a digest is due** (down, or restarting after a Claude Code
+  self-update), the `digest_due` event waits in the outbox and reaches the brain when it is back;
+  the 30 minutes count from then, so the hub never says "not written" about a digest the brain
+  never got. After 3 hours away it says so once: "The morning digest was not written: Marcel has
+  not been reachable for 3 hours; it gets the morning digest when it is back. In short: …".
+- **When the brain does not publish within 30 minutes** (busy or failed), the hub logs a
   warning and posts one plain line of its own, with a push, made from the bundle's numbers: "The
   evening digest was not written: Marcel did not publish it within 30 minutes. In short: 2 things
   wait for you; 3 threads are working." The owner is never left guessing, and nothing waits on the

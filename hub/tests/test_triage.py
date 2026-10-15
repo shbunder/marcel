@@ -108,6 +108,13 @@ def test_the_status_row_is_counted_on_its_own_and_ordinary_messages_are_not() ->
 
     for said in ('status?', 'Status', "what's the status", 'where are we?', 'any updates'):
         assert rule(said) == 'status_question', said
+    for said in (  # a lead-in, and "quick check" (missed on the NUC, 2026-10-14)
+        'Quick check: is the plumber booked?', 'Quick check on the heat pumps?',
+        "Hey, how's it going?", 'ok so any news?', 'Just a quick status update?',
+    ):  # fmt: skip
+        assert rule(said) == 'status_question', said
+    for said in ('Quickly book the dentist.', 'Check the oven timer.', 'Hey, book the dentist.'):
+        assert rule(said) == 'main_message', said
     for said in ('Book the dentist.', 'statuses of my PRs and then merge the green ones please.'):
         assert rule(said) == 'main_message', said
     assert rule('status? ' + 'x' * 80) == 'main_message'  # a long message is a real request
