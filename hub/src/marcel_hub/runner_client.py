@@ -1090,7 +1090,7 @@ class RunnerWatch:
             )
             for kind, data in rows:
                 run = (data or {}).get('run_id')
-                if not _is_run(run):
+                if not isinstance(run, str) or not _is_run(run):
                     continue
                 if kind == TaskEventType.workflow_start and run not in started:
                     started.append(run)

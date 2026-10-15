@@ -1,0 +1,134 @@
+<title>Project Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Marcel's tracker for one coding project (S-20.2, B-46). Published by the project's Kickoff quest
+   with the `db` capability; quests move their own card. Data: `meta/project` {name, repo, goal},
+   `cards/<task id>` {title, quest, status, pr_url, ci, waiting, updated_at, by}, `log` {at, card,
+   kind, text, by}. Layout: a "waiting on you" lane, then one column per status; columns scroll
+   sideways on a phone. No fixed width over 400 px (a test checks it). */
+:root {
+  --bg: #f5f1f3; --paper: #ffffff; --ink: #2a1d24; --muted: #6f6168; --line: #e6dde2;
+  --rose: #e0607e; --teal: #2f9c8e; --gold: #d99a1c; --sky: #4f86c6; --red: #cf4b4b;
+  --need-bg: #fff8e6;
+  --pixel: "Silkscreen", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1f191f; --paper: #2d2530; --ink: #f2e8e1; --muted: #b8a7a2; --line: #43384a; --rose: #ff8aa5; --teal: #5cc8b8; --gold: #f2c14e; --sky: #8fb6dd; --red: #f07a7a; --need-bg: #3a3020; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #1f191f; --paper: #2d2530; --ink: #f2e8e1; --muted: #b8a7a2; --line: #43384a; --rose: #ff8aa5; --teal: #5cc8b8; --gold: #f2c14e; --sky: #8fb6dd; --red: #f07a7a; --need-bg: #3a3020; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 60px; display: grid; gap: 16px; }
+header { display: grid; gap: 4px; }
+h1 { font-size: clamp(1.3rem, 4vw, 1.8rem); margin: 0; }
+.sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 11px/1 var(--pixel); padding: 6px 9px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.pill b { font-size: 13px; margin-right: 4px; }
+h2 { font: 12px/1 var(--pixel); margin: 4px 0 8px; color: var(--muted); letter-spacing: .04em; }
+.waiting { display: grid; gap: 8px; }
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.col { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.col h3 { font: 11px/1 var(--pixel); margin: 2px 0 4px; display: flex; justify-content: space-between; color: var(--muted); }
+.card { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 9px 11px; display: grid; gap: 4px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; width: 100%; box-sizing: border-box; }
+.card.need { border: 2px solid var(--gold); background: var(--need-bg); }
+.card:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.card .t { font-weight: 700; }
+.card .m { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.tag { font: 9px/1 var(--pixel); padding: 3px 6px; border-radius: 8px; border: 1px solid currentColor; }
+.ci-passing { color: var(--teal); } .ci-failing { color: var(--red); } .ci-pending { color: var(--gold); } .ci-unknown { color: var(--muted); }
+a { color: var(--rose); }
+.empty { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100%); background: var(--paper); border-left: 1px solid var(--line); box-shadow: -8px 0 30px rgba(0, 0, 0, .18);
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 24px; overflow-y: auto; z-index: 10; display: grid; gap: 10px; align-content: start; box-sizing: border-box; }
+.panel h3 { font-size: 18px; margin: 0; }
+.panel dl { display: grid; grid-template-columns: 80px 1fr; gap: 4px 8px; margin: 0; font-size: 13px; }
+.panel dt { font: 10px/1.6 var(--pixel); color: var(--muted); }
+.panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+button.close { justify-self: end; font: 12px var(--pixel); background: none; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); padding: 5px 9px; cursor: pointer; }
+.log { display: grid; gap: 6px; }
+.log div { font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 6px; }
+.log small { color: var(--muted); display: block; font-size: 11px; }
+@media (max-width: 760px) { .board { grid-auto-columns: 82%; scroll-snap-type: x mandatory; } .col { scroll-snap-align: start; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="name">Project tracker</h1>
+    <div class="sub" id="sub">Loading the tracker…</div>
+    <div class="strip" id="strip"></div>
+  </header>
+  <section aria-labelledby="h-waiting"><h2 id="h-waiting">WAITING ON YOU</h2><div class="waiting" id="waiting"></div></section>
+  <section aria-label="Cards by status"><div class="board" id="board"></div></section>
+</div>
+<aside class="panel" id="panel" hidden aria-label="Card detail"></aside>
+
+<script>
+(async function () {
+  const STATES = [["Backlog", "TO DO"], ["In Progress", "DOING"], ["Review", "IN REVIEW"], ["Done", "DONE"]];
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const safeUrl = (u) => (/^https:\/\//.test(String(u || "")) ? String(u) : "");
+  const ago = (iso) => { if (!iso) return ""; const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+  let cards = [], logs = [], openId = null;
+
+  const db = await (window.claude?.use?.("db") ?? null);
+  if (!db) { el("sub").textContent = "The tracker's data isn't available in this view. Open it on claude.ai while signed in."; return; }
+
+  function card(c) {
+    const pr = safeUrl(c.pr_url);
+    const ci = ["passing", "failing", "pending"].includes(c.ci) ? c.ci : "unknown";
+    return `<button class="card${c.waiting ? " need" : ""}" data-id="${esc(c.id)}">
+      <span class="t">${esc(c.title)}</span>
+      <span class="m">${c.quest ? `<span>${esc(c.quest)}</span>` : ""}
+        ${pr ? `<span>PR</span><span class="tag ci-${ci}">CHECKS ${ci.toUpperCase()}</span>` : ""}
+        ${c.updated_at ? `<span>${ago(c.updated_at)}</span>` : ""}</span></button>`;
+  }
+
+  function render() {
+    const n = (st) => cards.filter((c) => c.status === st).length;
+    el("strip").innerHTML = STATES.map(([k, l]) => `<span class="pill"><b>${n(k)}</b>${l}</span>`).join("");
+    const waiting = cards.filter((c) => c.waiting && c.status !== "Done");
+    el("waiting").innerHTML = waiting.length ? waiting.map(card).join("") : `<div class="empty">Nothing waits on you.</div>`;
+    el("board").innerHTML = STATES.map(([k, l]) => {
+      const items = cards.filter((c) => c.status === k);
+      return `<div class="col"><h3><span>${l}</span><span>${items.length}</span></h3>${items.length ? items.map(card).join("") : `<div class="empty">None.</div>`}</div>`;
+    }).join("");
+    if (!cards.length) el("sub").textContent = "No cards yet. Each coding quest in this project adds its own.";
+    if (openId) showPanel(openId);
+  }
+
+  function showPanel(id) {
+    const c = cards.find((x) => x.id === id); if (!c) return;
+    openId = id; const p = el("panel"); p.hidden = false;
+    const pr = safeUrl(c.pr_url);
+    const mine = logs.filter((l) => l.card === id).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    p.innerHTML = `<button class="close" id="close">CLOSE ✕</button>
+      <h3>${esc(c.title)}</h3>
+      <dl><dt>STATUS</dt><dd>${esc(c.status)}${c.waiting ? " · waiting on you" : ""}</dd><dt>QUEST</dt><dd>${esc(c.quest) || "—"}</dd>
+      <dt>PR</dt><dd>${pr ? `<a href="${esc(pr)}" target="_blank" rel="noopener">${esc(pr)}</a>` : "—"}</dd>
+      <dt>CHECKS</dt><dd>${esc(c.ci) || "—"}</dd><dt>BY</dt><dd>${esc(c.by) || "—"}</dd></dl>
+      <h2>HISTORY</h2><div class="log">${mine.length ? mine.map((l) => `<div>${esc(l.text)}<small>${esc(l.by || "")} · ${ago(l.at)}</small></div>`).join("") : `<div class="empty">No entries yet.</div>`}</div>`;
+    el("close").onclick = () => { openId = null; p.hidden = true; };
+  }
+
+  document.addEventListener("click", (e) => { const c = e.target.closest && e.target.closest(".card"); if (c) showPanel(c.dataset.id); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { openId = null; el("panel").hidden = true; } });
+
+  db.collection("meta").onSnapshot((snap) => {  // the same calls as project/board.html
+    const doc = snap.docs.find((d) => d.id === "project");
+    const m = (doc && doc.data()) || {};
+    if (m.name) { el("name").textContent = m.name; document.title = m.name + " · tracker"; }
+    el("sub").textContent = [m.repo, m.goal].filter(Boolean).join(" · ") || "A coding project, kept by Marcel's quests.";
+  }, () => {});
+  db.collection("cards").onSnapshot((snap) => {
+    cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    render();
+  }, () => { el("sub").textContent = "Lost the connection to the tracker's data. Reload to try again."; });
+  db.collection("log").orderBy("at", "desc").limit(300).onSnapshot((snap) => { logs = snap.docs.map((d) => d.data()); if (openId) showPanel(openId); }, () => {});
+})();
+</script>

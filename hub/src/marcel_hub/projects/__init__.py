@@ -26,5 +26,8 @@ def install(
         tasks.briefing = store.briefing
         tasks.publisher = ProjectEcho(tasks.publisher, store)
     app.state.projects = store
+    gateway = getattr(app.state, 'channel', None)
+    if gateway is not None:
+        gateway.trackers = store.set_tracker  # S-20.2: a worker's `role: tracker` link
     app.include_router(router)
     return store

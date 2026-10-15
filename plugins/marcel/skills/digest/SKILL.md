@@ -75,6 +75,11 @@ Sections: **Done** (finished threads, one line of outcome each) · **Ready for y
 merge, with link) · **New items** (artifacts made today) · **Failed** (what failed and what you
 suggest) · **Usage** (below).
 
+**Trackers (B-46).** In the evening digest turn, for each project with a `tracker_url`
+(`projects_list`): every card in `Review` whose PR the facts list as merged goes to `Done` with
+`ArtifactData` (`update` with `if_version`, plus one `log` row `{at, card, kind: "status", text:
+"Done: PR #<n> merged", by: "Marcel"}`). Nothing else on a tracker is yours to change.
+
 ## Usage report (part of the evening digest)
 
 - One line on the plan: "Used 62 % of this week's plan; resets Thursday 09:00."

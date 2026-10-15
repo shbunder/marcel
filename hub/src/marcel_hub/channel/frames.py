@@ -40,12 +40,13 @@ FIELDS: dict[str, dict[str, bool]] = {
 }  # fmt: skip
 ARTIFACT_FIELDS: dict[str, bool] = {
     'kind': True, 'title': True, 'url': False, 'path': False, 'artifact_id': False,
-    'summary': False,
+    'summary': False, 'role': False,
 }  # fmt: skip
+ARTIFACT_ROLES = frozenset({'tracker'})  # B-46: the project's tracker (`role` in channel 0.7)
 STRINGS = frozenset(
     {'session_id', 'secret', 'plugin_version', 'call_id', 'text', 'in_reply_to', 'kind', 'summary',
      'request_id', 'tool_name', 'description', 'input_preview', 'title', 'url', 'path',
-     'artifact_id'}
+     'artifact_id', 'role'}
 )  # fmt: skip
 
 
@@ -106,6 +107,11 @@ def check_artifact(artifact: Any) -> dict[str, Any]:
         raise BadFrame(f'a {kind} artifact needs a path')
     if len(artifact.get('summary', '')) > 200:
         raise BadFrame('an artifact summary is longer than 200 characters')
+    if 'role' in artifact:
+        if artifact['role'] not in ARTIFACT_ROLES:
+            raise BadFrame(f'unknown artifact role {artifact["role"]!r}')
+        if kind != 'link' or not artifact['url'].startswith('https://'):
+            raise BadFrame('a tracker is a link artifact with an https:// url')
     return artifact
 
 

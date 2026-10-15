@@ -221,7 +221,8 @@ class ProjectStore:
         for p in projects:
             body: dict[str, Any] = {'id': p.id, 'agent_id': p.agent_id, 'slug': p.slug,
                                     'name': p.name}  # fmt: skip
-            for name in ('goal', 'repo', 'folder', 'instructions', 'claude_project_url'):
+            for name in ('goal', 'repo', 'folder', 'instructions', 'claude_project_url',
+                         'tracker_url'):  # fmt: skip
                 if (value := getattr(p, name)) is not None:
                     body[name] = value
             updated = max(p.updated_at, latest.get(p.id, p.updated_at))
@@ -289,6 +290,26 @@ class ProjectStore:
             pass  # it exists already
         except (MemoryUnavailable, InvalidMemoryPath, MemoryFileNotFound) as exc:
             log.warning('The notes file for project %s was not made: %s', project.slug, exc)
+
+    def set_tracker(self, task_id: str, url: str) -> None:
+        """A worker reported its project's tracker (B-46, a `link` with `role: tracker`): the
+        task's project (its agent's inbox when it has none) gets `tracker_url`, replacing an
+        earlier one, and the app hears `project.updated`."""
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None:
+                return
+            project_id = task.project_id or self.inbox(task.agent_id).id
+            project = s.get(Project, project_id)
+            if project is None or project.tracker_url == url:
+                return
+            project.tracker_url = url
+            project.updated_at = utcnow()
+            s.add(project)
+            s.commit()
+            s.refresh(project)
+        log.info('Project %s has its tracker: %s', project.slug, url)
+        self.publisher.publish('project.updated', self.to_api(project))
 
     def update(self, project_id: str, user_id: str, changes: dict[str, Any]) -> Project:
         project = self.get(project_id, user_id)
@@ -410,6 +431,8 @@ class ProjectStore:
             parts.append(f'Repository: {project.repo}')
         if project.folder:
             parts.append(f'Folder on the NUC: {project.folder}')
+        if project.tracker_url:  # B-46: the quest keeps its own card there (worker-protocol)
+            parts.append(f'Tracker: {project.tracker_url} (your card: cards/{task.id})')
         if project.instructions:
             text, cut = _capped(project.instructions, SLICE_MAX_BYTES)
             more = '\n\n(The instructions are cut here; they are too long.)' if cut else ''

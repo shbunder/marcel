@@ -178,6 +178,8 @@ class Gateway:
         # (`path_health.py`) reads the brain's; the channel server pings every 20 s.
         self.last_frame: dict[str, float] = {}
         self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
+        # S-20.2: (task id, url) → set the task's project's tracker (`projects.install` sets it).
+        self.trackers: Callable[[str, str], None] | None = None
         self.tz: tzinfo = UTC  # the owner's time zone: a note's date
         # `replaced` replies passed on and not delivered yet: call id → (target, seq). An entry
         # goes when the new session acks its frame, so this holds only what is in flight.
@@ -454,7 +456,12 @@ class Gateway:
             try:
                 if self.artifacts is None:
                     raise ArtifactRefused('The artifact was not saved: this hub has no store.')
-                artifact_ids.append(self.artifacts.publish_reported(artifact, task_id).id)
+                spec = {
+                    k: v for k, v in artifact.items() if k != 'role'
+                }  # the hub's, not the item's
+                artifact_ids.append(self.artifacts.publish_reported(spec, task_id).id)
+                if artifact.get('role') == 'tracker' and self.trackers is not None:
+                    self.trackers(task_id, spec['url'])  # B-46: the project's tracker
             except ArtifactRefused as exc:
                 # The report is still stored; the thread shows why the artifact is missing.
                 log.warning('Task %s: %s', task_id, exc)

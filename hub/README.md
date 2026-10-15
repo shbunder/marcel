@@ -64,7 +64,7 @@ A test fails if the models and the migrations disagree. Timestamps are timezone-
 `look_personality`, the contract's `look`), `onboarded_at`, `archived_at` and a unique `slug` that a
 rename never changes (the owner's agent from before 0.7 is `marcel`); on `message`
 `reply_to_message_id` and `mentions_json` (the contract's `mentions`, `[]` by default); on `project`
-`tracker_url`. The routes and the owner's `user` row come with S-17.x, S-18.x and S-19.2.
+`tracker_url` (set by a worker's tracker link since S-20.2). The routes and the owner's `user` row come with S-17.x, S-18.x and S-19.2.
 
 ## GET /api/health
 
@@ -835,6 +835,12 @@ while the owner has no agent, and never overwrites a file: a non-empty clash is 
   existing agent its inbox and filed existing tasks and artifacts there. Its downgrade keeps every
   row: it turns foreign keys off while it rebuilds the tables, and `db.downgrade` then drops the
   pooled connections so the next one has them on again.
+- **Tracker (B-46, S-20.2).** A worker's `report(artifact)` of a `link` with `role: tracker` (only
+  `link`, only `https://`; anything else is refused `bad_report`) is stored as an item like any
+  link, and its task's project (its agent's inbox when it has none) gets `tracker_url`, replacing an
+  earlier one, with `project.updated`. Every quest in a project with a tracker finds
+  `Tracker: <url> (your card: cards/<task id>)` in its briefing. The page is
+  `plugins/marcel/templates/tracker/`.
 - **Slugs** match `^[a-z0-9][a-z0-9-]{0,39}$` (400 otherwise). Without one, the slug is made from
   the name (`Energy contracts` → `energy-contracts`, then `-2`, `-3` … if taken). A slug asked for
   that a live project of the agent already has answers 409 `slug_taken`; the database index

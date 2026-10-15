@@ -85,6 +85,22 @@ An artifact is `{kind, title, url | path}`:
 - Keep files you want to hand over inside your working folder. Do not attach secrets, `.env` files
   or anything with a token in it.
 
+## The project's tracker (coding projects)
+
+When your briefing says **Tracker:** with a claude.ai link, the project keeps a board of its quests
+there (B-46). Keep your own card current with `ArtifactData` on that link, the doc
+`cards/<your task id>`:
+
+- **When you start** (with `report(started)`): `set` it to `{title, quest, status: "In Progress",
+  updated_at, by: "Marcel"}`, where `title` is what the quest does in a few words and `quest` your
+  quest's title.
+- **When your PR is open:** `update` it with `status: "Review"`, `pr_url`, `ci` (`passing`, `failing`
+  or `pending`) and `updated_at`. Set `waiting: true` when the owner has to review or decide.
+- Each move also gets one `log` row: `add` `{at, card: "<your task id>", kind: "status", text:
+  "In Progress" | "Review: PR #<n>", by: "Marcel"}`.
+- Pin every `update` with `if_version` from your last read. Never touch another quest's card, and
+  never set `Done`: the evening digest does that once the PR is merged.
+
 ## How to write for the owner
 
 Every `text` and `summary` is read on a phone, often by someone who is not an engineer.

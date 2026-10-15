@@ -29,7 +29,7 @@ description: How a coding project starts well - the one Kickoff quest that adds 
 2. Run the check from this skill's folder, in the repo:
    `python3 <this skill's folder>/scripts/missing.py .`
    It prints `{"missing": [...], "check_command": "make check" | null}`.
-3. Nothing missing → `report(done)` with the summary "Nothing to add: the repo already has a
+3. Nothing missing → skip to step 7 (the tracker), then `report(done)` with the summary "Nothing to add: the repo already has a
    CLAUDE.md naming `<command>`, the command, CI and a PR template." No branch, no PR.
 4. Otherwise, on a branch `kickoff`, add only what is missing:
    - `check_command`: the lightest check that fits the repo: a Makefile `check` target that runs its
@@ -41,5 +41,13 @@ description: How a coding project starts well - the one Kickoff quest that adds 
 5. **Never overwrite an existing file**, other than adding the one line to an existing `CLAUDE.md`.
 6. Run the check command yourself; it must pass. Open one PR titled "Kickoff: what Claude Code needs
    in this repo", attach it with `report(artifact)`.
-7. `report(note)` with "How to check the work: `<check command>`", then `report(done)` with a summary
+7. **The project's tracker** (B-46), when the briefing names no tracker yet: publish
+   `templates/tracker/tracker.html` from this plugin (two folders up from this skill) as a new
+   claude.ai artifact with the `db` capability (the `Artifact` tool; keep the file in your own job
+   folder), titled "<project name> tracker". With `ArtifactData`, `set` the doc `meta/project` to
+   `{name, repo, goal}`, then report it:
+   `report(artifact, {kind: "link", title: "<project name> tracker", url: "<its https://claude.ai link>",
+   role: "tracker"})`. Only the channel carries `role`, which is why a Kickoff runs on the NUC.
+   Add this quest's own card (see the worker-protocol skill, "The project's tracker").
+8. `report(note)` with "How to check the work: `<check command>`", then `report(done)` with a summary
    that names the check command and lists what the PR adds.

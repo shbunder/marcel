@@ -39,8 +39,9 @@ def fields_of(definition: dict[str, Any]) -> dict[str, bool]:
 # refuses a frame that carries one. The last test below fails as soon as one is in the hub's
 # tables, so this list can only shrink.
 PENDING_FIELDS: dict[str, set[str]] = {}
-# The same for a reported artifact's fields (`Artifact`). `role` (contract 0.7): S-20.2.
-PENDING_ARTIFACT_FIELDS: set[str] = {'role'}
+# The same for a reported artifact's fields (`Artifact`). `role` (contract 0.7) is read since
+# S-20.2. Empty until a contract adds a field.
+PENDING_ARTIFACT_FIELDS: set[str] = set()
 
 
 def test_the_field_tables_match_the_contract() -> None:
