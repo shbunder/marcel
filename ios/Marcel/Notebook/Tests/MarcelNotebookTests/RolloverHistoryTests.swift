@@ -129,7 +129,7 @@ final class RolloverHistoryTests: XCTestCase {
             ((503, Fx.error("runner_unreachable", "The runner is down.")),
              "The hub can't start a new session for Marcel right now. Nothing changed. Try again in a few minutes."),
             ((404, Fx.error("agent_not_found", "No such agent.")),
-             "The hub doesn't list Marcel for this phone. Pull down to refresh."),
+             "This buddy is gone or archived, so its notebook can't change. Pull down to refresh."),
             ((401, Fx.error("unauthorized", "No.")), "The hub no longer accepts this phone. Pair it again."),
         ]
         for (answer, words) in cases {

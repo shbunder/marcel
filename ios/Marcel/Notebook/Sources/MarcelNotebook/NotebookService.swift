@@ -94,7 +94,7 @@ public enum NotebookError: Error, Equatable, LocalizedError {
         case .rolloverRunning: "A fresh start is already on its way. Marcel says hello in the chat when it's ready."
         case .cannotStartSession: "The hub can't start a new session for Marcel right now. Nothing changed. Try again "
             + "in a few minutes."
-        case .noAgent: "The hub doesn't list Marcel for this phone. Pull down to refresh."
+        case .noAgent: "This buddy is gone or archived, so its notebook can't change. Pull down to refresh."
         }
     }
 
@@ -124,13 +124,18 @@ public enum NotebookError: Error, Equatable, LocalizedError {
 /// The hub's REST API, signed with this phone's device token.
 public struct LiveNotebookService: NotebookService {
     let client: Client
+    /// The buddy this phone shows (the app's one `CurrentBuddy`; tests pass their own). Its notebook is the one shown.
+    let buddy: CurrentBuddy
 
-    public init(client: Client) {
+    public init(client: Client, buddy: CurrentBuddy = .shared) {
         self.client = client
+        self.buddy = buddy
     }
 
     public func listing() async throws -> MemoryListing {
-        switch try await call({ try await client.getMemoryTree() }) {
+        // Each buddy has its own notebook (app API 0.8.1, `agent_id`).
+        let agentId = await memoryAgent()
+        switch try await call({ try await client.getMemoryTree(query: .init(agentId: agentId)) }) {
         case .ok(let ok):
             let files = try ok.body.json.files
             let entries = files.compactMap { file in
@@ -138,6 +143,7 @@ public struct LiveNotebookService: NotebookService {
             }
             return MemoryListing(files: entries, refused: files.count - entries.count)
         case .unauthorized: throw NotebookError.unauthorized
+        case .notFound(let missing): throw NotebookError.missing(try? missing.body.json)
         case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "the notebook")
         }
@@ -145,27 +151,34 @@ public struct LiveNotebookService: NotebookService {
 
     public func file(_ path: MemoryPath) async throws -> MemoryFile {
         // The generated client percent-encodes the whole path as one segment (`/` becomes `%2F`).
-        switch try await call({ try await client.getMemoryFile(path: .init(path: path.raw)) }) {
+        let agentId = await memoryAgent()
+        switch try await call({
+            try await client.getMemoryFile(path: .init(path: path.raw), query: .init(agentId: agentId))
+        }) {
         case .ok(let ok): return try checked(ok.body.json, path)
         case .badRequest(let bad): throw NotebookError.bad(try? bad.body.json, fallback: "The hub won't open that note.")
         case .unauthorized: throw NotebookError.unauthorized
-        case .notFound: throw NotebookError.notFound
+        case .notFound(let missing):
+            throw (try? missing.body.json.code) == "agent_not_found" ? NotebookError.noAgent : NotebookError.notFound
         case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "a note")
         }
     }
 
     public func save(_ path: MemoryPath, content: String, ifMatch etag: String?) async throws -> SaveOutcome {
+        let agentId = await memoryAgent()
         let answer = try await call {
-            try await client.putMemoryFile(path: .init(path: path.raw), headers: .init(ifMatch: etag),
-                                           body: .json(.init(content: content)))
+            try await client.putMemoryFile(path: .init(path: path.raw), query: .init(agentId: agentId),
+                                           headers: .init(ifMatch: etag), body: .json(.init(content: content)))
         }
         switch answer {
         case .ok(let ok): return .saved(try checked(ok.body.json, path))
         case .conflict(let conflict): return .changedElsewhere(try checked(conflict.body.json, path))
         case .badRequest(let bad): throw NotebookError.bad(try? bad.body.json, fallback: "The hub didn't save that.")
         case .unauthorized: throw NotebookError.unauthorized
-        case .notFound: throw NotebookError.removed
+        // `agent_not_found`: the buddy is gone or archived (its notebook stays readable, not writable).
+        case .notFound(let missing):
+            throw (try? missing.body.json.code) == "agent_not_found" ? NotebookError.noAgent : NotebookError.removed
         case .serviceUnavailable(let down): throw NotebookError.storeDown(try? down.body.json.message)
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "saving a note")
         }
@@ -194,11 +207,21 @@ public struct LiveNotebookService: NotebookService {
         }
     }
 
-    /// The buddy the notebook is about: the one this phone shows (`CurrentBuddy`, B-49).
+    /// Whose notebook the memory routes read and write: the buddy this phone shows, as `CurrentBuddy` knows it, with no
+    /// request of its own. Before it knows one (a first launch offline), none: the hub then uses this phone's buddy.
+    private func memoryAgent() async -> String? {
+        await buddy.agentId
+    }
+
+    /// The buddy the notebook is about, for the rollover routes (its id is in their path): the one this phone shows
+    /// (`CurrentBuddy`, B-49), among `GET /me`'s buddies.
     private func agent() async throws -> String {
         switch try await call({ try await client.getMe() }) {
         case .ok(let ok):
-            guard let id = await CurrentBuddy.chosen(from: try ok.body.json.agents)?.id else { throw NotebookError.noAgent }
+            let agents = try ok.body.json.agents
+            guard let id = CurrentBuddy.pick(from: agents, id: await buddy.agentId)?.id else {
+                throw NotebookError.noAgent
+            }
             return id
         case .unauthorized: throw NotebookError.unauthorized
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "who you are")

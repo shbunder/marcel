@@ -9107,13 +9107,32 @@ public enum Operations {
             }
         }
     }
-    /// Every memory file (B-20).
+    /// Every memory file of one buddy (B-20).
     ///
     /// - Remark: HTTP `GET /memory`.
     /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)`.
     public enum GetMemoryTree {
         public static let id: Swift.String = "getMemoryTree"
         public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/memory/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                /// (`Device.agent_id`), so an app built before 0.8.1 keeps working. An archived buddy's memory
+                /// stays readable; saving to it answers 404 `agent_not_found`, as does an id that is no buddy.
+                /// New in 0.8.1.
+                ///
+                ///
+                /// - Remark: Generated from `#/paths/memory/GET/query/agent_id`.
+                public var agentId: Components.Parameters.MemoryAgentId?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - agentId: Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                public init(agentId: Components.Parameters.MemoryAgentId? = nil) {
+                    self.agentId = agentId
+                }
+            }
+            public var query: Operations.GetMemoryTree.Input.Query
             /// - Remark: Generated from `#/paths/memory/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMemoryTree.AcceptableContentType>]
@@ -9129,8 +9148,13 @@ public enum Operations {
             /// Creates a new `Input`.
             ///
             /// - Parameters:
+            ///   - query:
             ///   - headers:
-            public init(headers: Operations.GetMemoryTree.Input.Headers = .init()) {
+            public init(
+                query: Operations.GetMemoryTree.Input.Query = .init(),
+                headers: Operations.GetMemoryTree.Input.Headers = .init()
+            ) {
+                self.query = query
                 self.headers = headers
             }
         }
@@ -9204,6 +9228,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMemoryTree.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMemoryTree.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// `agent_id` is no buddy (code `agent_not_found`). New in 0.8.1.
+            ///
+            /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.GetMemoryTree.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.GetMemoryTree.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
@@ -9321,6 +9396,25 @@ public enum Operations {
                 }
             }
             public var path: Operations.GetMemoryFile.Input.Path
+            /// - Remark: Generated from `#/paths/memory/files/{path}/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                /// (`Device.agent_id`), so an app built before 0.8.1 keeps working. An archived buddy's memory
+                /// stays readable; saving to it answers 404 `agent_not_found`, as does an id that is no buddy.
+                /// New in 0.8.1.
+                ///
+                ///
+                /// - Remark: Generated from `#/paths/memory/files/{path}/GET/query/agent_id`.
+                public var agentId: Components.Parameters.MemoryAgentId?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - agentId: Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                public init(agentId: Components.Parameters.MemoryAgentId? = nil) {
+                    self.agentId = agentId
+                }
+            }
+            public var query: Operations.GetMemoryFile.Input.Query
             /// - Remark: Generated from `#/paths/memory/files/{path}/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetMemoryFile.AcceptableContentType>]
@@ -9337,12 +9431,15 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             public init(
                 path: Operations.GetMemoryFile.Input.Path,
+                query: Operations.GetMemoryFile.Input.Query = .init(),
                 headers: Operations.GetMemoryFile.Input.Headers = .init()
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
             }
         }
@@ -9463,17 +9560,47 @@ public enum Operations {
                     }
                 }
             }
-            /// Nothing with that id.
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/memory/files/{path}/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/memory/files/{path}/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetMemoryFile.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetMemoryFile.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// No such file (code `memory_file_not_found`), or `agent_id` is no buddy (code
+            /// `agent_not_found`, new in 0.8.1).
+            ///
             ///
             /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
-            case notFound(Components.Responses.NotFound)
+            case notFound(Operations.GetMemoryFile.Output.NotFound)
             /// The associated value of the enum case if `self` is `.notFound`.
             ///
             /// - Throws: An error if `self` is not `.notFound`.
             /// - SeeAlso: `.notFound`.
-            public var notFound: Components.Responses.NotFound {
+            public var notFound: Operations.GetMemoryFile.Output.NotFound {
                 get throws {
                     switch self {
                     case let .notFound(response):
@@ -9607,6 +9734,25 @@ public enum Operations {
                 }
             }
             public var path: Operations.PutMemoryFile.Input.Path
+            /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/query`.
+            public struct Query: Sendable, Hashable {
+                /// Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                /// (`Device.agent_id`), so an app built before 0.8.1 keeps working. An archived buddy's memory
+                /// stays readable; saving to it answers 404 `agent_not_found`, as does an id that is no buddy.
+                /// New in 0.8.1.
+                ///
+                ///
+                /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/query/agent_id`.
+                public var agentId: Components.Parameters.MemoryAgentId?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - agentId: Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+                public init(agentId: Components.Parameters.MemoryAgentId? = nil) {
+                    self.agentId = agentId
+                }
+            }
+            public var query: Operations.PutMemoryFile.Input.Query
             /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/header`.
             public struct Headers: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/memory/files/{path}/PUT/header/If-Match`.
@@ -9636,14 +9782,17 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             ///   - body:
             public init(
                 path: Operations.PutMemoryFile.Input.Path,
+                query: Operations.PutMemoryFile.Input.Query = .init(),
                 headers: Operations.PutMemoryFile.Input.Headers = .init(),
                 body: Operations.PutMemoryFile.Input.Body
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
                 self.body = body
             }
@@ -9825,7 +9974,10 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// `If-Match` names a file that was removed since you read it (code `memory_file_not_found`).
+            /// `If-Match` names a file that was removed since you read it (code `memory_file_not_found`),
+            /// or `agent_id` is no buddy or an archived one (code `agent_not_found`, new in 0.8.1; an
+            /// archived buddy's memory stays readable but takes no saves). Nothing was saved.
+            ///
             ///
             /// - Remark: Generated from `#/paths//memory/files/{path}/put(putMemoryFile)/responses/404`.
             ///

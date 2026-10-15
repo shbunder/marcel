@@ -14,6 +14,14 @@ extension Components {
     public enum Parameters {
         /// - Remark: Generated from `#/components/parameters/AgentId`.
         public typealias AgentId = Swift.String
+        /// Whose memory: each buddy has its own (ADR-013). Omitted, it is the calling phone's buddy
+        /// (`Device.agent_id`), so an app built before 0.8.1 keeps working. An archived buddy's memory
+        /// stays readable; saving to it answers 404 `agent_not_found`, as does an id that is no buddy.
+        /// New in 0.8.1.
+        ///
+        ///
+        /// - Remark: Generated from `#/components/parameters/MemoryAgentId`.
+        public typealias MemoryAgentId = Swift.String
         /// - Remark: Generated from `#/components/parameters/DeviceId`.
         public typealias DeviceId = Swift.String
         /// - Remark: Generated from `#/components/parameters/ConversationId`.

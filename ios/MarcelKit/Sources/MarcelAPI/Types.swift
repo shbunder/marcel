@@ -356,7 +356,7 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /projects/{project_id}/archive`.
     /// - Remark: Generated from `#/paths//projects/{project_id}/archive/post(archiveProject)`.
     func archiveProject(_ input: Operations.ArchiveProject.Input) async throws -> Operations.ArchiveProject.Output
-    /// Every memory file (B-20).
+    /// Every memory file of one buddy (B-20).
     ///
     /// - Remark: HTTP `GET /memory`.
     /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)`.
@@ -1126,12 +1126,18 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Every memory file (B-20).
+    /// Every memory file of one buddy (B-20).
     ///
     /// - Remark: HTTP `GET /memory`.
     /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)`.
-    public func getMemoryTree(headers: Operations.GetMemoryTree.Input.Headers = .init()) async throws -> Operations.GetMemoryTree.Output {
-        try await getMemoryTree(Operations.GetMemoryTree.Input(headers: headers))
+    public func getMemoryTree(
+        query: Operations.GetMemoryTree.Input.Query = .init(),
+        headers: Operations.GetMemoryTree.Input.Headers = .init()
+    ) async throws -> Operations.GetMemoryTree.Output {
+        try await getMemoryTree(Operations.GetMemoryTree.Input(
+            query: query,
+            headers: headers
+        ))
     }
     /// One memory file. The `ETag` header is the body's `etag` in quotes, as HTTP wants.
     ///
@@ -1142,10 +1148,12 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//memory/files/{path}/get(getMemoryFile)`.
     public func getMemoryFile(
         path: Operations.GetMemoryFile.Input.Path,
+        query: Operations.GetMemoryFile.Input.Query = .init(),
         headers: Operations.GetMemoryFile.Input.Headers = .init()
     ) async throws -> Operations.GetMemoryFile.Output {
         try await getMemoryFile(Operations.GetMemoryFile.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }
@@ -1167,11 +1175,13 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//memory/files/{path}/put(putMemoryFile)`.
     public func putMemoryFile(
         path: Operations.PutMemoryFile.Input.Path,
+        query: Operations.PutMemoryFile.Input.Query = .init(),
         headers: Operations.PutMemoryFile.Input.Headers = .init(),
         body: Operations.PutMemoryFile.Input.Body
     ) async throws -> Operations.PutMemoryFile.Output {
         try await putMemoryFile(Operations.PutMemoryFile.Input(
             path: path,
+            query: query,
             headers: headers,
             body: body
         ))

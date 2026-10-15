@@ -58,10 +58,16 @@ else in `GET /memory` is left out ("1 note has a name the app won't open") and n
 generated client percent-encodes the path as one segment (`memory%2Fprojects%2Fenergy.md`). A file the hub sends back
 must have the path that was asked for.
 
+**Whose notebook** (S-22.29, app API 0.8.1): each buddy has its own. The tree, a read and a save send `agent_id` = the
+buddy this phone shows (`CurrentBuddy`, no extra request), so after a switch the next request is the new buddy's.
+Before the phone knows a buddy it sends none, and the hub uses this phone's. 404 `agent_not_found` (a buddy that is
+gone, or saving to an archived one: its notebook stays readable) shows "This buddy is gone or archived, so its notebook
+can't change."
+
 ## What Marcel carries
 
-The card reads the hub's list, `GET /agents/{id}/brain/rollovers?limit=10` (app API 0.6; the agent is the first in
-`GET /me`), and merges in `RolloverLog`, the rollovers this phone saw on the live stream (`attach(to: connection.cache)`;
+The card reads the hub's list, `GET /agents/{id}/brain/rollovers?limit=10` (app API 0.6; the agent is the buddy shown,
+among `GET /me`'s), and merges in `RolloverLog`, the rollovers this phone saw on the live stream (`attach(to: connection.cache)`;
 kept on the phone, the last ten). The same rollover told twice (the hub's entry and the event: same reason, within a
 minute) shows once; newest first, at most ten. A rollover that arrives while the screen is open shows at once. The real
 hub does not serve the route until S-06.7: its generic 404 `not_found` (or a 405, or a bare 404) leaves the phone's log

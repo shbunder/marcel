@@ -23,7 +23,7 @@ extension Components {
             /// `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             /// projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
             /// `agent_not_found`; agents: `rollover_running`, `last_buddy` (409); artifacts and memory:
-            /// `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
+            /// `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`, `agent_not_found` (0.8.1),
             /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
             /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); mentions
             /// (0.7.0): `mention_not_found` (404). 0.8.0 removed `owner_only`, `user_not_found` and

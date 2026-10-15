@@ -38,6 +38,10 @@ import HTTPTypes
 /// retires them). Every field it adds to an existing schema is optional, except `Device.agent_id`,
 /// which a 0.8.0 hub always sends. The operations it adds are served story by story.
 ///
+/// **0.8.1** (additive): the memory routes (`GET /memory`, `GET` and `PUT /memory/files/{path}`)
+/// take an optional `agent_id` query parameter, so the Notebook follows the buddy a phone shows.
+/// Without it they use the calling phone's buddy (`Device.agent_id`).
+///
 public struct Client: APIProtocol {
     /// The underlying HTTP client.
     private let client: UniversalClient
@@ -5640,7 +5644,7 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// Every memory file (B-20).
+    /// Every memory file of one buddy (B-20).
     ///
     /// - Remark: HTTP `GET /memory`.
     /// - Remark: Generated from `#/paths//memory/get(getMemoryTree)`.
@@ -5658,6 +5662,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "agent_id",
+                    value: input.query.agentId
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -5710,6 +5721,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetMemoryTree.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
                 case 503:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.GetMemoryTree.Output.ServiceUnavailable.Body
@@ -5767,6 +5800,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "agent_id",
+                    value: input.query.agentId
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -5851,7 +5891,7 @@ public struct Client: APIProtocol {
                     return .unauthorized(.init(body: body))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.NotFound.Body
+                    let body: Operations.GetMemoryFile.Output.NotFound.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -5941,6 +5981,13 @@ public struct Client: APIProtocol {
                     in: &request.headerFields,
                     name: "If-Match",
                     value: input.headers.ifMatch
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "agent_id",
+                    value: input.query.agentId
                 )
                 converter.setAcceptHeader(
                     in: &request.headerFields,

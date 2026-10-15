@@ -90,6 +90,7 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
     private var table: [String: (Int, String)] = [:]
     private var seen: [String] = []
     private var matches: [String?] = []
+    private var buddies: [String?] = []
     var offline = false
     /// Paths the tree lists that are not real files (an untrusted name from the hub).
     var extraTreePaths: [String] = []
@@ -125,6 +126,8 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
 
     /// "PUT /memory/files/memory%2F2026-10-04.md", as sent (the path still percent-encoded).
     var requests: [String] { lock.withLock { seen } }
+    /// The `agent_id` each memory request named, in order (nil: none; app API 0.8.1).
+    var memoryBuddies: [String?] { lock.withLock { buddies } }
     /// Every `If-Match` sent with a PUT, in order (nil: none).
     var ifMatches: [String?] { lock.withLock { matches } }
 
@@ -140,12 +143,17 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         HTTPResponse, HTTPBody?
     ) {
         let text = if let body { try await String(collecting: body, upTo: 2 * 1024 * 1024) } else { "" }
-        let wirePath = request.path ?? ""
+        let full = request.path ?? ""
+        let wirePath = full.split(separator: "?", maxSplits: 1).first.map(String.init) ?? ""
+        let buddy = URLComponents(string: full)?.queryItems?.first { $0.name == "agent_id" }?.value
         let method = request.method.rawValue
         let ifMatch = request.headerFields[HTTPField.Name("If-Match")!]
         let (status, json): (Int, String) = lock.withLock {
-            seen.append("\(method) \(wirePath)")
+            seen.append("\(method) \(wirePath.hasPrefix("/memory") ? wirePath : full)")
+            if wirePath.hasPrefix("/memory") { buddies.append(buddy) }
             if method == "PUT" { matches.append(ifMatch) }
+            // A fixed answer for the request as sent (with its query), else by path.
+            if let fixed = table["\(method) \(full)"] { return fixed }
             return answer(method: method, wirePath: wirePath, body: text, ifMatch: ifMatch)
         }
         if offline { throw URLError(.notConnectedToInternet) }
