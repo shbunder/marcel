@@ -19,7 +19,8 @@ Point the app's server URL at `http://127.0.0.1:7499/api`.
 ## What it does
 
 - **Any device token works**, but a request with no `Authorization: Bearer ...` gets a 401, as the real
-  hub would send. `POST /api/pair` accepts any code (see People below for a member's). `/api/health` and `/api/pair` need no token.
+  hub would send. `POST /api/pair` accepts any code (see Buddies below for a code that pairs a new
+  phone). `/api/health` and `/api/pair` need no token; `/api/health` says `os: macos`.
 - **Bodies are checked against the contract.** A request body that does not match gets a 400 with a
   readable `message`, so a wrong request from the app shows up here.
 - **State lives in memory.** A restart resets it. Nothing is stored on disk.
@@ -29,8 +30,8 @@ Point the app's server URL at `http://127.0.0.1:7499/api`.
 - **Lists filter** by the query parameters the contract names: tasks by `agent_id`, `project_id` and
   `state`; artifacts by `task_id`, `project_id` and `kind` (newest change first).
 - Steering, stopping, archiving and handing back a task answer with the task as it stands. The mock
-  does not act on them. Schedules, memory, devices and usage return the contract's examples as they
-  are, and writes are not remembered.
+  does not act on them. Schedules, memory and usage return the contract's examples as they are, and
+  writes are not remembered.
 
 ## Projects, items and boards
 
@@ -60,55 +61,55 @@ live) and **Inbox** (`prj_inbox`, always last on the map). Every task and every 
 - **A message sent from a project room** (`project_id` on the message, B-32) is stored with the tag, and
   the thread it starts is filed in that project. An unknown `project_id` is a 400.
 
-## People and chat clarity (contract 0.7)
+## Buddies (app-api 0.8.0, B-49) and chat clarity (0.7)
 
-**app-api 0.8.0 (S-02.13) removed the people routes.** The mock builds its routes from the contract, so
-`/api/users…` and the owner-only refusals are gone; `POST /api/pairing-codes` gives the owner's next
-phone a code. The new 0.8.0 routes answer with the contract's examples. S-02.15 replaces the member
-scenario below with two buddies; until then the mock keeps Emma's records, but no route pairs a
-phone to her any more.
+One person (`usr_owner`, Shaun) with two buddies from the start: **Marcel** (`agt_marcel`, a rose
+giraffe, professional) and **Pip** (`agt_01JA3E2`, a tangerine fox, cheerful). Each has a main
+conversation (`cnv_main_marcel`, `cnv_main_pip`, where Pip has said hello) and an Inbox. The scripted
+runs below are Marcel's; a message to Pip is stored and answered by nobody.
 
-Two people are there from the start: the owner **Shaun** (`usr_owner`, helper Marcel) and **Emma**
-(`usr_01JA3E1`, helper Pip, `agt_01JA3E2`), from the contract's `Me`, `User` and `agent.updated`
-examples.
-
-- **Whose phone is it.** Any token the mock did not hand out is the owner's, as before. `POST
-  /api/users/{user_id}/pairing-codes` gives a one-time code (`MOCK01`, `MOCK02`, ...); `POST /api/pair`
-  with it pairs the phone to that person and returns their own token. A used code is a 400. Any other
-  code still pairs to the owner.
-- **Each person sees their own.** `/me`, agents, conversations, messages, tasks, projects, items,
-  approvals and mentions are the caller's own agent's; someone else's answers 404, or an empty list.
-  Emma starts with her own main conversation and nothing else. Actions by id on someone else's task,
-  approval, item or project (steer, stop, archive, hand back, move, answer, events, versions, content,
-  change, archive) answer 404 and change nothing; a task moves only into the caller's own project.
-- **Each phone's event stream is its person's.** Every event belongs to an agent (a task's, a
-  project's, a conversation's, an item's project's); a phone gets only its own person's, live and on
-  replay (`?since=`). Event ids stay global, so a phone sees gaps where someone else's events were.
-  Usage events would go to everyone (there is one Claude login); an event with no clear owner goes to
-  the owner's phones only.
-- **A self-change card** (`tool: self_change`, B-24) is answered by the owner only, even on a member's
-  own task: the member gets 403 `owner_only` and the card stays open. Someone else's card is a 404.
-- **Not checked per person:** operations that answer the contract's fixed example and change nothing
-  (`getApproval`, `getMessage`, side threads, `sendToMain`, `moveArtifact`, memory, schedules,
-  devices, brain rollovers). A project is created only under the caller's own agent.
-- **Adding a person** (`POST /api/users`) makes their helper and main conversation; without a look the
-  helper gets the `User` example's. **Removing** one signs their phones out at once (401) and removes
-  their helper; the owner cannot be removed (409 `cannot_remove_owner`).
+- **Every phone sees every buddy** (ADR-013). Nothing is scoped to the phone that asks: lists filter
+  by the query parameters the contract names (`/conversations` and `/projects` by `agent_id`, an
+  unknown buddy gives `[]`), every phone gets every event, live and on replay, and any phone answers
+  any approval card, a self-change card too.
+- **Which phone is it.** Any token the mock did not hand out is the first phone's (`dev_01J9ZQ4K2B`,
+  the contract's `Device` example), which shows Marcel. `GET /api/devices` lists the phones, newest
+  first, with `current` on the one asking.
+- **Switching buddy.** `PATCH /api/devices/{id}` `{agent_id}` sets the buddy that phone shows (any phone
+  may switch any phone) and sends `device.updated`. An unknown phone is 404 `device_not_found`; an
+  unknown or archived buddy 404 `agent_not_found`.
+- **Pairing another phone.** `POST /api/pairing-codes` (body optional) gives a one-time code (`MOCK01`,
+  `MOCK02`, ...) whose link carries `&buddy=<id>` when one is named. `POST /api/pair` with it pairs a
+  new phone, with its own token, on that buddy (the first live one when none was named, or when it
+  was archived since). A used code is a 400. Any other code answers the contract's example: the
+  first phone.
+- **Signing a phone out.** `DELETE /api/devices/{id}` of a phone the mock paired: its token is a 401
+  from then on and its stream is refused. The first phone stays (any token is still its).
+- **Push.** `PUT /api/devices/{id}/push` stores the target (`apns`, `ntfy` or `relay`, checked against
+  the contract) and `Device.push` shows its kind; the relay's `send_secret` is never shown again.
+  Phones start at `none`. Nothing is pushed.
+- **Adding a buddy.** `POST /api/agents` makes one with its own main conversation and Inbox and sends
+  `agent.updated`; without a `look` it gets one picked from its name (the same name, the same look).
+  No phone switches to it by itself.
+- **Archiving a buddy.** `POST /api/agents/{id}/archive` sets `archived_at`, sends `agent.updated`, and
+  moves each phone that showed it to the first live buddy (`device.updated` each). It leaves `Me.agents`
+  but stays readable by id, its chat too. Archiving it again answers it unchanged; the last live
+  buddy is refused with 409 `last_buddy`.
 - **A look change** (`PATCH /api/agents/{id}` with `look`, `name` or `onboarded`) is remembered and sends
   `agent.updated`, with `avatar_etag` `"lk-<animal>-<color>-<personality>"`. `onboarded_at` is set
-  once. Emma's helper Pip starts without it: her first sign-in shows "Meet your helper" (S-17.5).
+  once. Pip starts without it, so a phone on Pip shows "Meet your helper" (S-17.5).
 - **Avatars are drawn by the Pixel Zoo** (`shared/avatar/zoo`), as the real hub draws them. `GET
   /api/agents/{id}/avatar` answers the look's sheet: its JSON, or its PNG for `Accept: image/png`, both
-  with the ETag; `If-None-Match` with it answers 304. An agent without a look gets the rose giraffe's
-  sheet and no ETag. `GET /api/avatar-previews` draws one 32 × 32 PNG of any look for the look picker;
+  with the ETag; `If-None-Match` with it answers 304. A buddy without a look (none, today) would get
+  the rose giraffe's sheet and no ETag. `GET /api/avatar-previews` draws one 32 × 32 PNG of any look for the look picker;
   an unknown animal, colour, personality or mood is a 400.
 - **Quoted replies (B-41).** Every milestone, approval card and item message of a run carries
   `reply_to_message_id`: the message that started it. Say something else while a run waits, and its
   `done` milestone answers an older message than your latest: the app shows a quote.
-- **Mentions (B-42).** `GET /api/mentions?q=&kind=` lists your quests, projects and items whose title
-  holds `q`, newest first, at most 20 (boards left out). A message's `mentions` must be your own, or
-  it is refused with 404 `mention_not_found` and nothing is stored; the stored message carries the
-  hub's titles, and a project mention files it in that project.
+- **Mentions (B-42).** `GET /api/mentions?q=&kind=` lists every buddy's quests, projects and items
+  whose title holds `q`, newest first, at most 20 (boards left out). A message's `mentions` must
+  exist (any buddy's), or it is refused with 404 `mention_not_found` and nothing is stored; the stored
+  message carries the hub's titles, and a project mention files it in that project.
 
 ## The scenario
 

@@ -17,8 +17,8 @@ from jsonschema import ValidationError
 from zoo import png
 
 from . import contract
+from .buddies import avatar_etag
 from .hub import MAIN_CONVERSATION, Hub, Refused
-from .people import avatar_etag
 
 Handler = Callable[[Hub, Request], Awaitable[Response]]
 
@@ -37,16 +37,19 @@ def bearer(headers: Any) -> str | None:
     return token.strip() if scheme.lower() == 'bearer' and token.strip() else None
 
 
-def caller(request: Request) -> dict[str, Any]:
-    """The person whose phone sent this request (set by `endpoint`)."""
-    return request.state.caller
+def token_of(request: Request) -> str | None:
+    """The device token of this request (set by `endpoint`)."""
+    return request.state.token
 
 
-def my_agent(request: Request) -> str:
-    return caller(request)['agent']['id']
+async def body_of(request: Request) -> dict[str, Any]:
+    raw = await request.body()
+    return json.loads(raw) if raw else {}
 
 
 # ---- handlers that read or change the hub's state -------------------------------------------
+# One person sees every buddy (ADR-013): nothing here is scoped to the phone that asks. Lists
+# filter by the query parameters the contract names.
 
 
 def query_int(
@@ -81,29 +84,27 @@ def matching(items: Any, request: Request, *fields: str) -> list[dict[str, Any]]
 
 
 async def get_me(hub: Hub, request: Request) -> Response:
-    return JSONResponse(hub.people.me(caller(request), request.state.token))
+    return JSONResponse(hub.buddies.me(token_of(request)))
 
 
-def own_agent(request: Request) -> str | None:
-    """The path's agent when it is the caller's; another person's is treated as unknown."""
-    agent_id = request.path_params['agent_id']
-    return agent_id if agent_id == my_agent(request) else None
+async def create_agent(hub: Hub, request: Request) -> Response:
+    return JSONResponse(hub.buddies.create(await body_of(request)), status_code=201)
 
 
 async def get_agent(hub: Hub, request: Request) -> Response:
-    agent_id = own_agent(request)
-    return JSONResponse(hub.people.agent(agent_id)) if agent_id else not_found('agent')
+    return JSONResponse(hub.buddies.agent(request.path_params['agent_id']))
 
 
 async def update_agent(hub: Hub, request: Request) -> Response:
-    agent_id = own_agent(request)
-    if agent_id is None:
-        return not_found('agent')
-    body = json.loads(await request.body())
-    return JSONResponse(hub.people.update_agent(agent_id, body))
+    body = await body_of(request)
+    return JSONResponse(hub.buddies.update(request.path_params['agent_id'], body))
 
 
-# An agent without a look plays the bundled giraffe; its sheet is drawn from this look.
+async def archive_agent(hub: Hub, request: Request) -> Response:
+    return JSONResponse(hub.buddies.archive(request.path_params['agent_id']))
+
+
+# A buddy without a look plays the bundled giraffe; its sheet is drawn from this look.
 DEFAULT_LOOK = {'animal': 'giraffe', 'color': 'rose', 'personality': 'professional'}
 
 
@@ -112,13 +113,10 @@ def zoo_look(look: dict[str, Any]) -> dict[str, Any]:
 
 
 async def get_agent_avatar(hub: Hub, request: Request) -> Response:
-    """The Pixel Zoo's sheet for the agent's look, as the real hub draws it: the JSON by default,
+    """The Pixel Zoo's sheet for the buddy's look, as the real hub draws it: the JSON by default,
     the PNG for `Accept: image/png`. Both carry the ETag, which follows the look; `If-None-Match`
     with it answers 304."""
-    agent_id = own_agent(request)
-    if agent_id is None:
-        return not_found('agent')
-    agent = hub.people.agent(agent_id)
+    agent = hub.buddies.agent(request.path_params['agent_id'])
     etag = avatar_etag(agent)
     headers = {'ETag': etag} if etag else None
     if etag and request.headers.get('if-none-match') == etag:
@@ -129,10 +127,27 @@ async def get_agent_avatar(hub: Hub, request: Request) -> Response:
     return JSONResponse(meta, headers=headers)
 
 
+async def list_devices(hub: Hub, request: Request) -> Response:
+    return JSONResponse(hub.buddies.list_devices(token_of(request)))
+
+
+async def update_device(hub: Hub, request: Request) -> Response:
+    """Choose the buddy a phone shows (B-49); any phone may change any phone's."""
+    body = await body_of(request)
+    device_id = request.path_params['device_id']
+    return JSONResponse(hub.buddies.show(token_of(request), device_id, body['agent_id']))
+
+
+async def set_device_push(hub: Hub, request: Request) -> Response:
+    body = await body_of(request)
+    device_id = request.path_params['device_id']
+    return JSONResponse(hub.buddies.set_push(token_of(request), device_id, body))
+
+
 async def revoke_device(hub: Hub, request: Request) -> Response:
-    """A paired phone's own device is forgotten for real ("Sign out of this phone"); any other id
+    """A phone the mock paired is forgotten for real ("Sign out of this phone"); any other id
     answers 204 as before."""
-    hub.people.revoke_device(request.state.token, request.path_params['device_id'])
+    hub.buddies.revoke(request.path_params['device_id'])
     return Response(status_code=204)
 
 
@@ -158,21 +173,20 @@ async def get_avatar_preview(hub: Hub, request: Request) -> Response:
     return Response(png.encode(zoo.N, zoo.N, pixels), media_type='image/png')
 
 
-def own_conversation(hub: Hub, request: Request) -> str | None:
+def conversation_of(hub: Hub, request: Request) -> str | None:
     conversation_id = request.path_params['conversation_id']
-    conversation = hub.conversations.get(conversation_id)
-    return (
-        conversation_id if conversation and conversation['agent_id'] == my_agent(request) else None
-    )
+    return conversation_id if conversation_id in hub.conversations else None
 
 
 async def list_conversations(hub: Hub, request: Request) -> Response:
-    mine = [c for c in hub.conversations.values() if c['agent_id'] == my_agent(request)]
-    return JSONResponse(matching(mine, request, 'agent_id', 'kind'))
+    """A buddy's conversations; a buddy that does not exist (or none named) gives an empty list."""
+    agent_id = request.query_params.get('agent_id')
+    found = [c for c in hub.conversations.values() if c['agent_id'] == agent_id]
+    return JSONResponse(matching(found, request, 'kind'))
 
 
 async def list_messages(hub: Hub, request: Request) -> Response:
-    conversation_id = own_conversation(hub, request)
+    conversation_id = conversation_of(hub, request)
     if conversation_id is None:
         return not_found('conversation')
     items = [m for m in hub.messages if m['conversation_id'] == conversation_id]
@@ -180,10 +194,10 @@ async def list_messages(hub: Hub, request: Request) -> Response:
 
 
 async def send_message(hub: Hub, request: Request) -> Response:
-    conversation_id = own_conversation(hub, request)
+    conversation_id = conversation_of(hub, request)
     if conversation_id is None:
         return not_found('conversation')
-    body = json.loads(await request.body())
+    body = await body_of(request)
     message = hub.user_message(
         conversation_id,
         body['text'],
@@ -203,34 +217,25 @@ async def search_mentions(hub: Hub, request: Request) -> Response:
         raise Refused(400, 'bad_request', '`q` may be at most 100 characters.')
     if kind not in (None, 'task', 'project', 'artifact'):
         raise Refused(400, 'bad_request', '`kind` must be task, project or artifact.')
-    return JSONResponse(hub.search_mentions(my_agent(request), q, kind))
+    return JSONResponse(hub.search_mentions(q, kind))
 
 
 async def list_tasks(hub: Hub, request: Request) -> Response:
-    tasks = matching(
-        hub.owned('task', my_agent(request)), request, 'agent_id', 'project_id', 'state'
-    )
+    tasks = matching(hub.owned('task'), request, 'agent_id', 'project_id', 'state')
     return JSONResponse({'items': paged(tasks, request)})
 
 
+def task_of(hub: Hub, request: Request) -> dict[str, Any] | None:
+    return hub.tasks.get(request.path_params['task_id'])
+
+
 async def get_task(hub: Hub, request: Request) -> Response:
-    task = hub.tasks.get(request.path_params['task_id'])
-    return (
-        JSONResponse(task) if task and task['agent_id'] == my_agent(request) else not_found('task')
-    )
+    task = task_of(hub, request)
+    return JSONResponse(task) if task else not_found('task')
 
 
-def own_task(hub: Hub, request: Request) -> dict[str, Any] | None:
-    """The path's task when it is the caller's; another person's is treated as unknown."""
-    task = hub.tasks.get(request.path_params['task_id'])
-    return task if task and task['agent_id'] == my_agent(request) else None
-
-
-def own_artifact(hub: Hub, request: Request) -> dict[str, Any] | None:
-    artifact = hub.artifacts.get(request.path_params['artifact_id'])
-    if artifact and hub.project_agent(artifact.get('project_id')) == my_agent(request):
-        return artifact
-    return None
+def artifact_of(hub: Hub, request: Request) -> dict[str, Any] | None:
+    return hub.artifacts.get(request.path_params['artifact_id'])
 
 
 def task_action(status: int) -> Handler:
@@ -238,7 +243,7 @@ def task_action(status: int) -> Handler:
     act on them."""
 
     async def handler(hub: Hub, request: Request) -> Response:
-        task = own_task(hub, request)
+        task = task_of(hub, request)
         return JSONResponse(task, status_code=status) if task else not_found('task')
 
     return handler
@@ -246,7 +251,7 @@ def task_action(status: int) -> Handler:
 
 async def list_task_events(hub: Hub, request: Request) -> Response:
     task_id = request.path_params['task_id']
-    if own_task(hub, request) is None:
+    if task_of(hub, request) is None:
         return not_found('task')
     after = query_int(request, 'after', 0, 0) or 0
     limit = limit_of(request)
@@ -255,57 +260,44 @@ async def list_task_events(hub: Hub, request: Request) -> Response:
 
 
 async def list_approvals(hub: Hub, request: Request) -> Response:
-    mine = {t['id'] for t in hub.owned('task', my_agent(request))}
-    return JSONResponse(
-        [a for a in hub.approvals.values() if a['state'] == 'open' and a['task_id'] in mine]
-    )
+    return JSONResponse([a for a in hub.approvals.values() if a['state'] == 'open'])
 
 
 async def answer_approval(hub: Hub, request: Request) -> Response:
-    """Only the caller's own cards; the owner also answers every self-change card (B-24). Since
-    app-api 0.8.0 any paired phone may answer a self-change card (ADR-013)."""
+    """Any paired phone answers any card, a self-change card too (ADR-013)."""
     approval = hub.approvals.get(request.path_params['approval_id'])
     if approval is None:
         return not_found('approval')
-    owner = caller(request)['role'] == 'owner'
-    self_change = approval['tool'] == 'self_change'
-    # Someone else's card is unknown, except that the owner answers every self-change card.
-    if hub.task_agent(approval['task_id']) != my_agent(request) and not (owner and self_change):
-        return not_found('approval')
-    body = json.loads(await request.body())
+    body = await body_of(request)
     result = hub.answer(approval['id'], body['decision'])
     assert result is not None
     return JSONResponse(result[1], status_code=result[0])
 
 
 async def move_task(hub: Hub, request: Request) -> Response:
-    """Only the caller's own task, into one of the caller's own projects."""
-    task = own_task(hub, request)
+    """Into another project of the same buddy; a project of another buddy is treated as unknown."""
+    task = task_of(hub, request)
     if task is None:
         return not_found('task')
-    body = json.loads(await request.body())
-    if hub.project_agent(body['project_id']) not in (None, my_agent(request)):
+    body = await body_of(request)
+    if hub.project_agent(body['project_id']) not in (None, task['agent_id']):
         return not_found('project')
     return JSONResponse(hub.move_task(task, body['project_id']))
 
 
 async def list_artifacts(hub: Hub, request: Request) -> Response:
-    found = matching(
-        hub.owned('artifact', my_agent(request)), request, 'task_id', 'project_id', 'kind'
-    )
+    found = matching(hub.owned('artifact'), request, 'task_id', 'project_id', 'kind')
     found.sort(key=lambda a: a['updated_at'], reverse=True)
     return JSONResponse({'items': paged(found, request)})
 
 
 async def get_artifact(hub: Hub, request: Request) -> Response:
-    artifact = hub.artifacts.get(request.path_params['artifact_id'])
-    if artifact is None or hub.project_agent(artifact.get('project_id')) != my_agent(request):
-        return not_found('artifact')
-    return JSONResponse(artifact)
+    artifact = artifact_of(hub, request)
+    return JSONResponse(artifact) if artifact else not_found('artifact')
 
 
 async def get_artifact_content(hub: Hub, request: Request) -> Response:
-    artifact = own_artifact(hub, request)
+    artifact = artifact_of(hub, request)
     version = query_int(request, 'version', None, 1)
     body = hub.content(artifact, version) if artifact else None
     if artifact is None or body is None:
@@ -314,30 +306,29 @@ async def get_artifact_content(hub: Hub, request: Request) -> Response:
 
 
 async def list_artifact_versions(hub: Hub, request: Request) -> Response:
-    artifact = own_artifact(hub, request)
+    artifact = artifact_of(hub, request)
     if artifact is None:
         return not_found('artifact')
     return JSONResponse(list(reversed(hub.versions[artifact['id']])))
 
 
 def project_of(hub: Hub, request: Request) -> dict[str, Any] | None:
-    project = hub.projects.get(request.path_params['project_id'])
-    return project if project and project['agent_id'] == my_agent(request) else None
+    return hub.projects.get(request.path_params['project_id'])
 
 
 async def list_projects(hub: Hub, request: Request) -> Response:
-    """The caller's own; another person's agent gives an empty list."""
+    """A buddy's Map; a buddy that does not exist (or none named) gives an empty list."""
     archived = request.query_params.get('archived', 'false').lower() == 'true'
-    agent_id = request.query_params.get('agent_id', my_agent(request))
-    if agent_id != my_agent(request):
+    agent_id = request.query_params.get('agent_id')
+    if agent_id not in hub.buddies.records:
         return JSONResponse([])
     return JSONResponse(hub.live_projects(agent_id, archived))
 
 
 async def create_project(hub: Hub, request: Request) -> Response:
-    """Only under the caller's own agent; another person's is treated as unknown."""
-    body = json.loads(await request.body())
-    if body['agent_id'] != my_agent(request):
+    """Under a live buddy; any other id is a 404."""
+    body = await body_of(request)
+    if body['agent_id'] not in {a['id'] for a in hub.buddies.live()}:
         return not_found('agent')
     return JSONResponse(hub.create_project(body), status_code=201)
 
@@ -351,8 +342,7 @@ async def update_project(hub: Hub, request: Request) -> Response:
     project = project_of(hub, request)
     if project is None:
         return not_found('project')
-    body = json.loads(await request.body())
-    return JSONResponse(hub.update_project(project, body))
+    return JSONResponse(hub.update_project(project, await body_of(request)))
 
 
 async def archive_project(hub: Hub, request: Request) -> Response:
@@ -363,46 +353,34 @@ async def archive_project(hub: Hub, request: Request) -> Response:
 
 
 async def pair(hub: Hub, request: Request) -> Response:
-    body = json.loads(await request.body())
-    return JSONResponse(hub.people.pair(body['code']), status_code=201)
-
-
-async def list_users(hub: Hub, request: Request) -> Response:
-    return JSONResponse(hub.people.list_users())
-
-
-async def add_user(hub: Hub, request: Request) -> Response:
-    body = json.loads(await request.body())
-    return JSONResponse(hub.people.add_user(body), status_code=201)
-
-
-async def remove_user(hub: Hub, request: Request) -> Response:
-    hub.people.remove_user(request.path_params['user_id'])
-    return Response(status_code=204)
+    body = await body_of(request)
+    return JSONResponse(hub.buddies.pair(body['code'], body['device_name']), status_code=201)
 
 
 async def create_pairing_code(hub: Hub, request: Request) -> Response:
-    """`POST /pairing-codes` (app-api 0.8.0): a code for the owner's next phone."""
-    user_id = request.path_params.get('user_id', hub.people.owner_id)
-    return JSONResponse(hub.people.issue_code(user_id), status_code=201)
+    """A code for one more phone, starting on the buddy named (else the first live one)."""
+    body = await body_of(request)
+    return JSONResponse(hub.buddies.issue_code(body.get('agent_id')), status_code=201)
 
 
 async def get_health(hub: Hub, request: Request) -> Response:
-    return JSONResponse(contract.example('Health'))
+    return JSONResponse(contract.example('Health'))  # os: macos, as on a Mac install (B-51)
 
 
 HANDLERS: dict[str, Handler] = {
     'getHealth': get_health,
     'pairDevice': pair,
     'getMe': get_me,
+    'createAgent': create_agent,
     'getAgent': get_agent,
     'updateAgent': update_agent,
+    'archiveAgent': archive_agent,
     'getAgentAvatar': get_agent_avatar,
     'getAvatarPreview': get_avatar_preview,
+    'listDevices': list_devices,
+    'updateDevice': update_device,
+    'setDevicePush': set_device_push,
     'revokeDevice': revoke_device,
-    'listUsers': list_users,
-    'addUser': add_user,
-    'removeUser': remove_user,
     'createPairingCode': create_pairing_code,
     'searchMentions': search_mentions,
     'listConversations': list_conversations,
@@ -464,22 +442,18 @@ def example_handler(path: str, method: str, op: dict[str, Any]) -> Handler:
 def endpoint(hub: Hub, method: str, path: str, op: dict[str, Any]) -> Callable[..., Any]:
     handler = HANDLERS.get(op['operationId']) or example_handler(path, method, op)
     needs_token = op.get('security') != []
-    owner_only = bool(op.get('x-owner-only'))
     body_check = contract.request_pointer(path, method)
     check = contract.validator(body_check) if body_check else None
+    body_optional = not op.get('requestBody', {}).get('required', False)
 
     async def run(request: Request) -> Response:
         token = bearer(request.headers)
-        person = hub.people.caller(token) if token else None
-        if needs_token and person is None:
+        if needs_token and (token is None or not hub.buddies.known(token)):
             return error(
                 401, 'unauthorized', 'Pair this phone again: the hub needs a device token.'
             )
-        request.state.token, request.state.caller = token, person
-        if owner_only and person is not None and person['role'] != 'owner':
-            refused = hub.people.owner_only()
-            return error(refused.status, refused.code, refused.message)
-        if check is not None:
+        request.state.token = token
+        if check is not None and not (body_optional and not await request.body()):
             try:
                 check.validate(json.loads(await request.body()))
             except (ValueError, ValidationError) as exc:
@@ -497,19 +471,11 @@ def websocket_route(hub: Hub) -> Callable[[WebSocket], Awaitable[None]]:
     async def stream(ws: WebSocket) -> None:
         since = ws.query_params.get('since')
         token = bearer(ws.headers)
-        if (
-            not token
-            or hub.people.caller(token) is None
-            or (since is not None and not since.isdigit())
-        ):
+        if not token or not hub.buddies.known(token) or (since is not None and not since.isdigit()):
             await ws.close(code=1008)
             return
-        person = hub.people.caller(token)
-        assert person is not None
         await ws.accept()
-        queue, frames = hub.subscribe(
-            int(since) if since is not None else None, person['agent']['id']
-        )
+        queue, frames = hub.subscribe(int(since) if since is not None else None)
         listen = asyncio.create_task(ws.receive())
         try:
             for frame in frames:

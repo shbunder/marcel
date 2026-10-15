@@ -3,8 +3,8 @@
 # flows 1-3: pair, send a message, watch the events, approve the card, watch the task finish;
 # flows 4-6: the map, a new project, an energy thread filed in the inbox and moved to its project,
 # the project room and its board, then the item's v2 after the approval;
-# people and chat clarity (contract 0.7): Emma's phone, a member's 403, a look change, a result that
-# quotes an older message, and mentions.
+# buddies (app-api 0.8.0): Marcel and Pip, a second phone that starts on Pip, switching buddy, a look
+# change, relay push; chat clarity (0.7): a result that quotes an older message, and mentions.
 set -euo pipefail
 
 HUB="${HUB:-http://127.0.0.1:7499}"
@@ -133,33 +133,51 @@ REPLAY="$(HUB="$HUB" uv run --quiet python scripts/ws_listen.py 0)"
 printf '%s\n' "$REPLAY" | sed -n '1,4p'
 echo "... $(printf '%s\n' "$REPLAY" | grep -c .) lines in all"
 
-# ---- people and chat clarity (contract 0.7) ----------------------------------------------------
+# ---- buddies (app-api 0.8.0) and chat clarity (0.7) --------------------------------------------
 
-step "people: the owner first, then the family"
-curl -fsS "${AUTH[@]}" "$API/users" | json "'\n'.join(u['name'] + ' (' + u['role'] + '), helper ' + u['agent']['name'] for u in d)"
+PIP=agt_01JA3E2
+THIS_PHONE="$(curl -fsS "${AUTH[@]}" "$API/me" | json "d['device_id']")"
 
-step "a pairing code for Emma's phone"
-CODE="$(curl -fsS -X POST "${AUTH[@]}" "$API/users/usr_01JA3E1/pairing-codes" | json "d['code']")"
+step "buddies: one person, several buddies"
+curl -fsS "${AUTH[@]}" "$API/me" | json "d['name'] + ' has ' + ', '.join(a['name'] + ' (' + a['look']['color'] + ' ' + a['animal'] + ')' for a in d['agents'])"
+
+step "a pairing code for a second phone that starts on Pip"
+CODE="$(curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/pairing-codes" -d "{\"agent_id\":\"$PIP\"}" | json "d['code']")"
 echo "code $CODE"
+curl -fsS -X POST "${JSON[@]}" "$API/pair" -d "{\"code\":\"$CODE\",\"device_name\":\"iPad\"}" | json "'paired ' + d['device_id']"
+curl -fsS "${AUTH[@]}" "$API/devices" | json "'\n'.join('  ' + x['name'] + ' shows ' + x['agent_id'] + (' (this phone)' if x.get('current') else '') for x in d)"
 
-step "Emma's phone pairs with it"
-EMMA_TOKEN="$(curl -fsS -X POST "${JSON[@]}" "$API/pair" \
-  -d "{\"code\":\"$CODE\",\"device_name\":\"Emma's iPhone\"}" | json "d['token']")"
-EMMA=(-H "Authorization: Bearer $EMMA_TOKEN")
-curl -fsS "${EMMA[@]}" "$API/me" | json "d['name'] + ' (' + d['role'] + ') with ' + d['agents'][0]['name']"
+step "switch buddy: this phone shows Pip, then Pip's main conversation"
+: >"$LOG"
+HUB="$HUB" UNTIL=device.updated uv run --quiet python scripts/ws_listen.py >"$LOG" &
+LISTENER=$!
+for _ in $(seq 50); do grep -q connected "$LOG" && break; sleep 0.1; done
+curl -fsS -X PATCH "${AUTH[@]}" "${JSON[@]}" "$API/devices/$THIS_PHONE" -d "{\"agent_id\":\"$PIP\"}" |
+  json "d['name'] + ' now shows ' + d['agent_id']"
+finish
+grep device.updated "$LOG"
+PIP_MAIN="$(curl -fsS "${AUTH[@]}" "$API/agents/$PIP" | json "d['main_conversation_id']")"
+curl -fsS "${AUTH[@]}" "$API/conversations/$PIP_MAIN/messages" |
+  json "'\n'.join('  ' + m['role'] + ': ' + m['text'] for m in d['items'] if m.get('text'))"
 
-step "Emma may not open People"
-curl -sS "${EMMA[@]}" "$API/users" -w ' (HTTP %{http_code})\n'
-
-step "Emma gives Pip a new look"
+step "Pip gets a new look"
 : >"$LOG"
 HUB="$HUB" UNTIL=agent.updated uv run --quiet python scripts/ws_listen.py >"$LOG" &
 LISTENER=$!
 for _ in $(seq 50); do grep -q connected "$LOG" && break; sleep 0.1; done
-curl -fsS -X PATCH "${EMMA[@]}" "${JSON[@]}" "$API/agents/agt_01JA3E2" \
+curl -fsS -X PATCH "${AUTH[@]}" "${JSON[@]}" "$API/agents/$PIP" \
   -d '{"look":{"animal":"panda","color":"teal","personality":"cozy"}}' | json "d['name'] + ' looks like a ' + d['look']['color'] + ' ' + d['animal']"
 finish
 cat "$LOG"
+
+step "push through the relay: registered, and Device.push says so"
+curl -fsS -X PUT "${AUTH[@]}" "${JSON[@]}" "$API/devices/$THIS_PHONE/push" \
+  -d '{"kind":"relay","relay_url":"https://push.marcel-bot.com","handle":"AAAAAAAAAAAAAAAAAAAAAA","send_secret":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","device_key":"ccccccccccccccccccccccccccccccccccccccccccA"}' |
+  json "d['name'] + ' pushes via ' + d['push']"
+
+step "back to Marcel"
+curl -fsS -X PATCH "${AUTH[@]}" "${JSON[@]}" "$API/devices/$THIS_PHONE" -d '{"agent_id":"agt_marcel"}' |
+  json "d['name'] + ' shows ' + d['agent_id']"
 
 step "ask something, then say something else while it works"
 FIRST="$(curl -fsS -X POST "${AUTH[@]}" "${JSON[@]}" "$API/conversations/cnv_main_marcel/messages" \
