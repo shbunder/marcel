@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class RolloverHistoryTests: XCTestCase {
     private func model(_ hub: FakeHub, log: RolloverLog? = nil, clock: Date = Fx.now) -> NotebookModel {
-        NotebookModel(service: hub.service, drafts: DraftStore(defaults: .scratch("drafts-\(name)")),
+        NotebookModel(service: hub.service, buddy: nil, drafts: DraftStore(defaults: .scratch("drafts-\(name)")),
                       rollovers: log ?? RolloverLog(defaults: .scratch("rollovers-\(name)")),
                       projectNames: { Fx.projectNames }, text: Fx.text, clock: { clock })
     }

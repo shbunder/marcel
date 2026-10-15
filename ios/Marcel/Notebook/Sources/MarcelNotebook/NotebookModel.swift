@@ -69,13 +69,24 @@ public final class NotebookModel {
 
     /// - Parameter projectNames: slug → name of every project (from the cache), so project notes show the project's
     ///   name and a project without notes can get some.
-    public init(service: any NotebookService, drafts: DraftStore = DraftStore(), rollovers: RolloverLog,
+    /// The buddy this notebook is about, fixed when it opens (S-22.30): its drafts, reads, saves and rollovers are all
+    /// this buddy's, even if the phone switches while it is open. Nil before the phone knows one.
+    public let buddy: String?
+
+    /// - Parameters:
+    ///   - buddy: whose notebook; by default the buddy shown (`CurrentBuddy`).
+    ///   - drafts: that buddy's unsaved edits; nil opens them for `buddy`.
+    public init(service: any NotebookService, buddy: String? = CurrentBuddy.shared.agentId, drafts: DraftStore? = nil,
+                rollovers: RolloverLog,
                 projectNames: @escaping @MainActor () -> [String: String] = { [:] }, text: NotebookText = NotebookText(),
                 clock: @escaping () -> Date = { Date() }) {
         self.clock = clock
-        self.service = service
-        self.drafts = drafts
+        self.buddy = buddy
+        self.service = service.pinned(to: buddy)
+        self.drafts = drafts ?? DraftStore(buddy: buddy)
         self.rollovers = rollovers
+        // Rollovers an older build kept (no buddy) belong to the buddy shown when the notebook first opens with one.
+        if let buddy { rollovers.adoptOld(for: buddy) }
         self.projectNames = projectNames
         self.text = text
         aboutYou = NoteRow(path: .aboutYou, title: "About you", updatedAt: nil, hasDraft: false)
@@ -141,7 +152,8 @@ public final class NotebookModel {
     /// The hub's list and this phone's log together, newest first, each rollover once. Follows the live stream: a
     /// rollover that happens while the screen is open shows at once.
     public var carried: [Rollover] {
-        Rollover.merged(hub: hubRollovers ?? [], phone: rollovers.rollovers)
+        // Only this buddy's: the hub's list is already per buddy (its id is in the path).
+        Rollover.merged(hub: hubRollovers ?? [], phone: rollovers.rollovers(for: buddy))
     }
 
     /// Reads the hub's list. A hub that does not serve it yet (404 `not_found`, 405) leaves this phone's log on its own,

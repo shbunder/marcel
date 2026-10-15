@@ -47,6 +47,14 @@ public protocol NotebookService {
     /// `POST /agents/{id}/brain/rollover`: a fresh start now. Returns once the hub has started it (202); the
     /// `brain.rollover` event follows when the new session has taken over.
     func rollOver() async throws
+    /// The same service, always about `agentId`'s notebook (S-22.30): an open notebook stays on one buddy even if the
+    /// phone switches meanwhile, so its drafts, reads and saves never cross buddies. Nil: follow the buddy shown.
+    func pinned(to agentId: String?) -> any NotebookService
+}
+
+extension NotebookService {
+    /// Services with one notebook (fakes) have nothing to pin.
+    public func pinned(to agentId: String?) -> any NotebookService { self }
 }
 
 /// Why something in the notebook did not work, in words a family member reads on a phone.
@@ -126,10 +134,18 @@ public struct LiveNotebookService: NotebookService {
     let client: Client
     /// The buddy this phone shows (the app's one `CurrentBuddy`; tests pass their own). Its notebook is the one shown.
     let buddy: CurrentBuddy
+    /// Set by `pinned(to:)`: this notebook's buddy, whatever the phone shows meanwhile.
+    var pin: String?
 
     public init(client: Client, buddy: CurrentBuddy = .shared) {
         self.client = client
         self.buddy = buddy
+    }
+
+    public func pinned(to agentId: String?) -> any NotebookService {
+        var pinned = self
+        pinned.pin = agentId
+        return pinned
     }
 
     public func listing() async throws -> MemoryListing {
@@ -210,7 +226,8 @@ public struct LiveNotebookService: NotebookService {
     /// Whose notebook the memory routes read and write: the buddy this phone shows, as `CurrentBuddy` knows it, with no
     /// request of its own. Before it knows one (a first launch offline), none: the hub then uses this phone's buddy.
     private func memoryAgent() async -> String? {
-        await buddy.agentId
+        if let pin { return pin }
+        return await buddy.agentId
     }
 
     /// The buddy the notebook is about, for the rollover routes (its id is in their path): the one this phone shows
@@ -219,7 +236,8 @@ public struct LiveNotebookService: NotebookService {
         switch try await call({ try await client.getMe() }) {
         case .ok(let ok):
             let agents = try ok.body.json.agents
-            guard let id = CurrentBuddy.pick(from: agents, id: await buddy.agentId)?.id else {
+            let wanted: String? = if let pin { pin } else { await buddy.agentId }
+            guard let id = CurrentBuddy.pick(from: agents, id: wanted)?.id else {
                 throw NotebookError.noAgent
             }
             return id

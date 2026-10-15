@@ -36,15 +36,17 @@ A row with unsaved changes on this phone says so ("Updated yesterday 18:40 · un
   - **Reload theirs** (after a confirmation) shows the hub's version and throws your changes away;
   - **Save mine over it** saves yours against the version just shown (its etag), so a third change made meanwhile
     comes back as another conflict, never a silent overwrite.
-- **Drafts.** Every change is kept on this phone (`DraftStore`, `notebook.draft.<path>` in user defaults) with the
-  etag it started from, until it is saved or thrown away. So unsaved text survives leaving the screen, closing the app
-  and a save that failed. Opening a note that has a draft brings it back ("Your unsaved changes from … are back");
+- **Drafts.** Every change is kept on this phone (`DraftStore`, `notebook.draft.<agent id>:<path>` in user
+  defaults) with the etag it started from, until it is saved or thrown away. Drafts belong to one buddy (S-22.30): a
+  draft of Marcel's `MEMORY.md` never shows on Pip's, and drafts an older build kept move to the buddy shown. So
+  unsaved text survives leaving the screen, closing the app and a save that failed. Opening a note that has a draft
+  brings it back ("Your unsaved changes from … are back");
   if the note changed on the hub since the draft began, the conflict shows at once, and keeps showing until you
   choose. Offline, a draft still opens ("Not saved yet: the hub can't be reached. Your draft from …"); the later save
   still checks its version. A draft whose words are what the hub now has is thrown away (when the list loads, and when
   the note opens), whatever version it started from, so it never shows "unsaved changes" for nothing.
-- **Bounded.** At most 50 drafts, each at most 1 MB (the hub's own limit). A longer text is not kept, and the note
-  says so; a 51st draft throws away the oldest one, and the note names it.
+- **Bounded.** At most 50 drafts per buddy, each at most 1 MB (the hub's own limit). A longer text is not kept, and
+  the note says so; a 51st draft throws away the oldest one, and the note names it.
 - **Removed elsewhere** (404 `memory_file_not_found` on a save): "This note was removed since you opened it. Your text
   is still here: save again to create it." The next save creates it.
 - **Unpairing** forgets every draft and the rollover log: `RolloverLog.attach(to: connection)` registers that with
@@ -68,7 +70,8 @@ can't change."
 
 The card reads the hub's list, `GET /agents/{id}/brain/rollovers?limit=10` (app API 0.6; the agent is the buddy shown,
 among `GET /me`'s), and merges in `RolloverLog`, the rollovers this phone saw on the live stream (`attach(to: connection.cache)`;
-kept on the phone, the last ten). The same rollover told twice (the hub's entry and the event: same reason, within a
+kept on the phone, the last ten per buddy, each filed under the buddy whose brain rolled over; the notebook lists only
+the buddy shown's). The same rollover told twice (the hub's entry and the event: same reason, within a
 minute) shows once; newest first, at most ten. A rollover that arrives while the screen is open shows at once. The real
 hub does not serve the route until S-06.7: its generic 404 `not_found` (or a 405, or a bare 404) leaves the phone's log
 on its own, silently; any other failure says so under the list ("Couldn't read the past fresh starts from the hub, so
@@ -118,6 +121,11 @@ follow Dynamic Type (the list is also snapshotted at Accessibility 5).
 - `RolloverLogTests` — rollovers from an in-memory cache's frames, newest first, replays ignored, the last ten kept
   across launches, reasons in words.
 - `LineDiffTests` — order and folding, and what VoiceOver reads.
+- `NotebookBuddyTests` (S-22.29) — every memory request names the buddy shown, a switch moves the next one, and a
+  buddy that is gone (or archived, on a save) shows the "no buddy" state; none is named before the phone knows one.
+- `BuddyDraftTests` (S-22.30) — a Marcel draft never shows on Pip's note and each keeps its own; the draft limit is per
+  buddy; old drafts move to the buddy shown, once; Marcel's notebook carries only Marcel's rollovers; an open notebook
+  stays on its buddy through a switch.
 - `ReviewFixTests` — unpairing forgets drafts and rollovers; a draft equal to the hub's words is dropped; an offline
   draft's header line; the 1 MB and 50-draft bounds.
 - `NotebookSnapshotTests` — the notebook (light, dark, Accessibility 5), a fresh start on its way and one a hub can't

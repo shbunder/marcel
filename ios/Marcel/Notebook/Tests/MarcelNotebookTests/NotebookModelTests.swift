@@ -12,7 +12,7 @@ import XCTest
 final class NotebookModelTests: XCTestCase {
     private func loaded(_ hub: FakeHub = FakeHub(), drafts: DraftStore = DraftStore(defaults: .scratch(#function)),
                         names: [String: String] = Fx.projectNames) async -> NotebookModel {
-        let model = NotebookModel(service: hub.service, drafts: drafts,
+        let model = NotebookModel(service: hub.service, buddy: nil, drafts: drafts,
                                   rollovers: RolloverLog(defaults: .scratch("rollovers-\(#function)")),
                                   projectNames: { names }, text: Fx.text)
         await model.load()

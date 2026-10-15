@@ -12,17 +12,20 @@ public struct Rollover: Codable, Equatable, Sendable, Identifiable {
     public var reason: String
     /// What the new session starts with, in the hub's plain words.
     public var kept: String
+    /// Whose brain rolled over (S-22.30); nil for one kept by an older build, until it moves to the buddy shown.
+    public var agentId: String?
 
-    public init(id: String, at: Date, reason: String, kept: String) {
+    public init(id: String, at: Date, reason: String, kept: String, agentId: String? = nil) {
         self.id = id
         self.at = at
         self.reason = reason
         self.kept = kept
+        self.agentId = agentId
     }
 
     /// A `brain.rollover` event's facts.
-    public init(eventId: Int, at: Date, reason: String, kept: String) {
-        self.init(id: "event-\(eventId)", at: at, reason: reason, kept: kept)
+    public init(eventId: Int, at: Date, reason: String, kept: String, agentId: String? = nil) {
+        self.init(id: "event-\(eventId)", at: at, reason: reason, kept: kept, agentId: agentId)
     }
 
     /// The hub's `Rollover`.
@@ -30,7 +33,7 @@ public struct Rollover: Codable, Equatable, Sendable, Identifiable {
         self.init(id: hub.id, at: hub.at, reason: hub.reason.rawValue, kept: hub.kept)
     }
 
-    private enum CodingKeys: String, CodingKey { case id, at, reason, kept }
+    private enum CodingKeys: String, CodingKey { case id, at, reason, kept, agentId }
 
     /// Also reads the log an older build kept, whose ids were the event's number.
     public init(from decoder: any Decoder) throws {
@@ -43,6 +46,7 @@ public struct Rollover: Codable, Equatable, Sendable, Identifiable {
         at = try container.decode(Date.self, forKey: .at)
         reason = try container.decode(String.self, forKey: .reason)
         kept = try container.decode(String.self, forKey: .kept)
+        agentId = try container.decodeIfPresent(String.self, forKey: .agentId)
     }
 
     /// The same rollover told twice (the hub's list and the event this phone saw): same reason, within a minute.
@@ -59,12 +63,13 @@ public struct Rollover: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// The last rollovers this phone saw, newest first, for "What Marcel carries".
+/// The last rollovers this phone saw, newest first, for "What Marcel carries": ten per buddy, each filed under the buddy
+/// whose brain rolled over (S-22.30), so one buddy's notebook never lists another's.
 ///
 /// The notebook reads the hub's list (`GET /agents/{id}/brain/rollovers`, app API 0.6) and merges this log into it, so a
 /// rollover that happened while the screen is open shows at once, and a hub that does not serve the list yet (before
 /// S-06.7) still shows what this phone saw. The log follows the live stream from the moment the tabs are up (the hub
-/// replays what a reconnecting phone missed) and keeps the last ten on this phone.
+/// replays what a reconnecting phone missed) and keeps the last ten per buddy on this phone.
 @MainActor
 @Observable
 public final class RolloverLog {
@@ -82,6 +87,25 @@ public final class RolloverLog {
         self.defaults = defaults
         rollovers = defaults.data(forKey: Self.key)
             .flatMap { try? JSONDecoder().decode([Rollover].self, from: $0) } ?? []
+    }
+
+    /// Rollovers an older build kept (no buddy) become `buddy`'s: the notebook calls this when it opens on a buddy, so
+    /// a first launch before the phone knows one moves them later, not never. Once moved, there is nothing to move.
+    public func adoptOld(for buddy: String) {
+        guard rollovers.contains(where: { $0.agentId == nil }) else { return }
+        rollovers = rollovers.map { old in
+            var moved = old
+            moved.agentId = old.agentId ?? buddy
+            return moved
+        }
+        save()
+    }
+
+    /// The rollovers of `agentId`'s brain, newest first. With no buddy known yet (a first launch offline), every one this
+    /// phone saw: there is only one buddy's notebook it could be.
+    public func rollovers(for agentId: String?) -> [Rollover] {
+        guard let agentId else { return rollovers }
+        return rollovers.filter { $0.agentId == agentId }
     }
 
     /// The app's wiring: follows the connection's cache, and when the phone is unpaired (by the person or because the
@@ -111,11 +135,21 @@ public final class RolloverLog {
 
     /// Adds a `brain.rollover` frame; every other frame is ignored.
     public func receive(_ frame: EventFrame) {
-        guard case .brainRollover(_, let reason, let kept) = frame.event,
+        guard case .brainRollover(let agentId, let reason, let kept) = frame.event,
               !rollovers.contains(where: { $0.id == "event-\(frame.id)" }) else { return }
-        rollovers.append(Rollover(eventId: frame.id, at: frame.at, reason: reason, kept: kept))
+        rollovers.append(Rollover(eventId: frame.id, at: frame.at, reason: reason, kept: kept, agentId: agentId))
         rollovers.sort { $0.at == $1.at ? $0.id > $1.id : $0.at > $1.at }
-        rollovers = Array(rollovers.prefix(Self.keep))
+        // The last ten of each buddy.
+        var seen: [String: Int] = [:]
+        rollovers = rollovers.filter { rollover in
+            let count = seen[rollover.agentId ?? "", default: 0]
+            seen[rollover.agentId ?? ""] = count + 1
+            return count < Self.keep
+        }
+        save()
+    }
+
+    private func save() {
         if let data = try? JSONEncoder().encode(rollovers) { defaults.set(data, forKey: Self.key) }
     }
 

@@ -68,8 +68,9 @@ enum Fx {
     static let rollOverRoute = "POST /agents/agt_marcel/brain/rollover"
 
     static func rollover(id: Int, at: Date, reason: String = "daily",
-                         kept: String = "open threads, decisions, today's plan.") -> EventFrame {
-        frame("brain.rollover", ["agent_id": "agt_marcel", "reason": reason, "kept": kept], id: id, at: at)
+                         kept: String = "open threads, decisions, today's plan.", agent: String = "agt_marcel")
+        -> EventFrame {
+        frame("brain.rollover", ["agent_id": agent, "reason": reason, "kept": kept], id: id, at: at)
     }
 }
 

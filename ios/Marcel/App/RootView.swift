@@ -105,6 +105,7 @@ struct MainTabs: View {
     private let notebook: LiveNotebookService
     private let looks: LiveLookService
     /// "What Marcel carries": the brain's rollovers, followed from the moment the tabs are up.
+    // Rollovers each buddy's brain had, as this phone saw them (S-22.30); the notebook files older ones under its buddy.
     @State private var rollovers = RolloverLog()
     @State private var chat: ChatModel
     @State private var tab: PixelTabBar.Tab.ID = "chat"

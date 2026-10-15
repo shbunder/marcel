@@ -56,7 +56,7 @@ final class ReviewFixTests: XCTestCase {
         drafts.keep(Draft(text: Fx.energy, base: "0ld", at: Fx.at(-86_400)),
                     for: MemoryPath("memory/projects/energy.md")!)
         drafts.keep(Draft(text: "really unsaved", base: "0ld", at: Fx.at(-86_400)), for: .aboutYou)
-        let model = NotebookModel(service: hub.service, drafts: drafts,
+        let model = NotebookModel(service: hub.service, buddy: nil, drafts: drafts,
                                   rollovers: RolloverLog(defaults: .scratch("rollovers")),
                                   projectNames: { Fx.projectNames }, text: Fx.text)
         await model.load()

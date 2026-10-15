@@ -16,8 +16,10 @@ public struct Draft: Codable, Equatable, Sendable {
     }
 }
 
-/// Where drafts are kept: this phone's user defaults, under `notebook.draft.<path>`. Bounded, so drafts never fill the
-/// phone: at most `maxDrafts` notes, each at most `maxBytes` (the hub's own limit for a memory file).
+/// Where drafts are kept: this phone's user defaults, one buddy's at a time (S-22.30): each buddy has its own notebook,
+/// so an unsaved edit of Marcel's `MEMORY.md` must never show on Pip's. The key is `notebook.draft.<agent id>:<path>`
+/// (an id has no `:`, nor has a memory path). Bounded, so drafts never fill the phone: at most `maxDrafts` notes per
+/// buddy, each at most `maxBytes` (the hub's own limit for a memory file).
 public struct DraftStore: @unchecked Sendable {
     static let prefix = "notebook.draft."
     public static let maxDrafts = 50
@@ -25,12 +27,39 @@ public struct DraftStore: @unchecked Sendable {
     let defaults: UserDefaults
     let maxDrafts: Int
     let maxBytes: Int
+    /// The buddy whose drafts these are; nil before the phone knows one (then the keys carry none).
+    public let buddy: String?
 
-    public init(defaults: UserDefaults = .standard, maxDrafts: Int = DraftStore.maxDrafts,
+    /// - Parameter buddy: whose drafts. Drafts an older build kept (`notebook.draft.<path>`, no buddy) move to it.
+    public init(defaults: UserDefaults = .standard, buddy: String? = nil, maxDrafts: Int = DraftStore.maxDrafts,
                 maxBytes: Int = DraftStore.maxBytes) {
         self.defaults = defaults
+        self.buddy = buddy
         self.maxDrafts = maxDrafts
         self.maxBytes = maxBytes
+        if buddy != nil { adoptOldDrafts() }
+    }
+
+    /// This buddy's key prefix: `notebook.draft.<agent id>:`, or the bare prefix with no buddy.
+    private var mine: String { Self.prefix + (buddy.map { "\($0):" } ?? "") }
+
+    private func key(_ path: MemoryPath) -> String { mine + path.raw }
+
+    /// Moves drafts kept before drafts belonged to a buddy (`notebook.draft.<path>`) to this buddy. Running it again
+    /// moves nothing (no old keys are left). If this buddy already has a draft of that note (only after going back to an
+    /// older build and on again), the newer of the two is kept.
+    private func adoptOldDrafts() {
+        for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix(Self.prefix) {
+            let rest = String(key.dropFirst(Self.prefix.count))
+            guard !rest.contains(":"), let path = MemoryPath(rest) else { continue }
+            let old = (value as? Data).flatMap { try? JSONDecoder().decode(Draft.self, from: $0) }
+            if let current = draft(for: path), let old, current.at >= old.at {
+                // This buddy's draft is the newer one: it stays.
+            } else {
+                defaults.set(value, forKey: self.key(path))
+            }
+            defaults.removeObject(forKey: key)
+        }
     }
 
     /// What `keep` did.
@@ -58,7 +87,7 @@ public struct DraftStore: @unchecked Sendable {
     }
 
     public func draft(for path: MemoryPath) -> Draft? {
-        defaults.data(forKey: Self.prefix + path.raw).flatMap { try? JSONDecoder().decode(Draft.self, from: $0) }
+        defaults.data(forKey: key(path)).flatMap { try? JSONDecoder().decode(Draft.self, from: $0) }
     }
 
     @discardableResult
@@ -72,22 +101,25 @@ public struct DraftStore: @unchecked Sendable {
                 dropped.forEach(discard)
             }
         }
-        defaults.set(data, forKey: Self.prefix + path.raw)
+        defaults.set(data, forKey: key(path))
         return dropped.isEmpty ? .kept : .madeRoom(dropped: dropped)
     }
 
     public func discard(_ path: MemoryPath) {
-        defaults.removeObject(forKey: Self.prefix + path.raw)
+        defaults.removeObject(forKey: key(path))
     }
 
-    /// The notes that have a draft.
+    /// This buddy's notes that have a draft.
     public var paths: Set<MemoryPath> {
-        Set(defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(Self.prefix) }
-            .compactMap { MemoryPath(String($0.dropFirst(Self.prefix.count))) })
+        let mine = self.mine
+        return Set(defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(mine) }
+            .compactMap { MemoryPath(String($0.dropFirst(mine.count))) })
     }
 
-    /// Forgets every draft (when the phone is unpaired).
+    /// Forgets every buddy's drafts (when the phone is unpaired).
     public func discardAll() {
-        for path in paths { discard(path) }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.prefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

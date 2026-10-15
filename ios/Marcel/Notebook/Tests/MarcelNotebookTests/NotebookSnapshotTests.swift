@@ -40,7 +40,7 @@ final class NotebookSnapshotTests: XCTestCase {
     private func notebook(_ hub: FakeHub = FakeHub(), rollovers: Bool = true) async -> NotebookModel {
         let log = RolloverLog(defaults: .scratch("snapshot-rollovers-\(rollovers)"))
         if rollovers { log.receive(Fx.rollover(id: 12, at: Fx.at(-3600 * 19 - 40 * 60))) }
-        let model = NotebookModel(service: hub.service, drafts: DraftStore(defaults: .scratch("snapshot-list")),
+        let model = NotebookModel(service: hub.service, buddy: nil, drafts: DraftStore(defaults: .scratch("snapshot-list")),
                                   rollovers: log, projectNames: { Fx.projectNames }, text: Fx.text,
                                   clock: { Fx.now })
         await model.load()
