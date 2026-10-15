@@ -12,7 +12,8 @@ session you want to hand over.
   cloud session, set it as the `MARCEL_ADOPT_TOKEN` secret of the environment instead.
 - **What happens.** Claude picks a title (yours, or a short line about the session) and runs
   `scripts/adopt.py`, which posts the session's id, folder and host name (or, in the cloud, its
-  `session_…` id and link) to `https://marcel-bot.com/api/session/adopt`
+  `session_…` id and link) to `<your Marcel's address>/api/session/adopt`, the address saved in
+  `~/.marcel/hub-url`
   (`contracts/session-api.yaml`). The session id comes from `${CLAUDE_SESSION_ID}` in the command,
   else from `CLAUDE_CODE_SESSION_ID`; a cloud session is recognised by `CLAUDE_CODE_REMOTE` and its
   id read from `CLAUDE_CODE_REMOTE_SESSION_ID`.
@@ -35,7 +36,7 @@ entry, not `$HOME`, and uses each file only when it belongs to you and nobody el
 | Setting | Default | What for |
 |---|---|---|
 | `~/.marcel/adopt-token` | — | The token (required, owner-only) |
-| `~/.marcel/hub-url` | `https://marcel-bot.com` | Another hub, e.g. a test hub; must be https (owner-only) |
+| `~/.marcel/hub-url` | — | Your Marcel's address, e.g. `https://mac.tail1234.ts.net` (required, owner-only, https). The install and `marcel connect` write it; without it the command says "Run `marcel connect` first". A cloud session has no such file, so `/marcel-adopt` works only on a computer that ran `marcel connect` |
 | `MARCEL_ADOPT_TOKEN` (environment) | — | The token itself, only when there is no token file: for a cloud session. It can only go to the hub above |
 
 The command's permission rule lets Claude run exactly

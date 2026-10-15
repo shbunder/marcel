@@ -39,11 +39,17 @@ TOKEN = 'mra_' + 'f00d' * 16
 CWD = '/home/owner/projects/harry'
 
 
-def token_file(tmp_path: Path, token: str = TOKEN, mode: int = 0o600) -> Path:
+# This install's own address (S-22.2): the install and `marcel connect` write ~/.marcel/hub-url.
+HUB = 'https://hub.example.org'
+
+
+def token_file(tmp_path: Path, token: str = TOKEN, mode: int = 0o600, hub: bool = True) -> Path:
     path = tmp_path / '.marcel' / 'adopt-token'
     path.parent.mkdir(exist_ok=True)
     path.write_text(token + '\n')
     path.chmod(mode)
+    if hub and not (tmp_path / '.marcel' / 'hub-url').exists():
+        hub_file(tmp_path, HUB)
     return path
 
 
@@ -90,6 +96,8 @@ def run(
 def test_a_missing_token_says_exactly_how_to_get_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    (tmp_path / '.marcel').mkdir()
+    hub_file(tmp_path, HUB)
     send = Recorder()
     code, out = run(['--title', 'x'], env_for(tmp_path), send, capsys)
     assert code == 1
@@ -150,6 +158,8 @@ def test_a_token_path_that_cannot_be_looked_at_says_so(
 def test_a_cloud_session_can_take_the_token_from_its_environment(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    (tmp_path / '.marcel').mkdir()
+    hub_file(tmp_path, HUB)  # a cloud session needs the address too: no built-in one (S-22.2)
     send = Recorder()
     env = env_for(tmp_path, MARCEL_ADOPT_TOKEN=TOKEN)
     code, _ = run([], env, send, capsys)
@@ -185,7 +195,7 @@ def test_a_local_session_sends_its_id_folder_and_machine_over_https(
     code, out = run(['--title', '  Refactor   the renderer '], env_for(tmp_path), send, capsys)
     assert code == 0
     url, token, body, timeout = send.calls[0]
-    assert url == 'https://marcel-bot.com/api/session/adopt'
+    assert url == f'{HUB}/api/session/adopt'
     assert token == TOKEN and timeout == adopt.TIMEOUT
     assert body == {'session_id': SID, 'kind': 'local', 'title': 'Refactor the renderer',
                     'cwd': CWD, 'machine': 'bunderserver'}  # fmt: skip
@@ -262,6 +272,16 @@ def hub_file(home: Path, url: str, mode: int = 0o600) -> None:
     path.chmod(mode)
 
 
+def test_without_a_hub_address_it_says_run_marcel_connect_first(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token_file(tmp_path, hub=False)
+    send = Recorder()
+    code, out = run([], env_for(tmp_path), send, capsys)
+    assert code == 1 and 'Run `marcel connect` first' in out
+    assert send.calls == []
+
+
 def test_the_hub_address_comes_from_an_owner_only_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -275,7 +295,7 @@ def test_the_hub_address_comes_from_an_owner_only_file(
 
 
 @pytest.mark.parametrize(
-    'url', ['http://marcel-bot.com', 'marcel-bot.com', 'https://', 'https://x.test/?a=1']
+    'url', ['http://hub.example.org', 'hub.example.org', 'https://', 'https://x.test/?a=1']
 )
 def test_the_hub_address_must_be_https(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], url: str
@@ -319,7 +339,7 @@ def test_the_environment_cannot_move_the_token_or_the_hub(
     )
     send = Recorder()
     run([], env, send, capsys)
-    assert send.calls[0][:2] == ('https://marcel-bot.com/api/session/adopt', TOKEN)
+    assert send.calls[0][:2] == (f'{HUB}/api/session/adopt', TOKEN)
 
 
 def test_the_home_directory_comes_from_the_password_database(
@@ -471,8 +491,8 @@ def hub_send(world: World):
     """`send` over the hub's in-process test client, at the path the script asked for."""
 
     def send(url: str, token: str, body: dict[str, Any], timeout: float) -> tuple[int, Any]:
-        assert url.startswith('https://marcel-bot.com/api/')
-        path = url.removeprefix('https://marcel-bot.com')
+        assert url.startswith(f'{HUB}/api/')
+        path = url.removeprefix(HUB)
         res = world.client.post(path, json=body, headers={'Authorization': f'Bearer {token}'})
         return res.status_code, res.json()
 

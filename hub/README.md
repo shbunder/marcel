@@ -57,6 +57,7 @@ names the file.
 | `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 | `redeploy_flag` | `MARCEL_REDEPLOY_FLAG` | `$MARCEL_HOME/state/redeploy.flag`. The file the hub writes the merge commit to when an approved self-change is merged ("Self-changes" below). The Docker hub sets `/state/redeploy.flag`, the host's `~/marcel/state` mounted; the host's `marcel-redeploy.path` unit watches the file (S-11.2) |
+| `public_url` | `MARCEL_PUBLIC_URL` | unset. This install's own https address, without `/api` (e.g. `https://mac.tail1234.ts.net`; `https://marcel-bot.com` on the NUC, set in `deploy/docker-compose.yml`). Pairing links use `<public_url>/api` and cloud quests report to `<public_url>/api/session/report` (S-22.2). Unset: the hub starts and logs "No public address yet: run `marcel connect`" once; `marcel-hub pair` and `setup` make no code, `POST /api/users/{id}/pairing-codes` answers 409 `no_public_url`, and no cloud quest starts. `http://` or a trailing `/api` stops the hub at start |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests and the Docker hub use it). `MARCEL_HOME` moves the root of every default.
@@ -178,8 +179,8 @@ that pairs a phone to them; `DELETE /api/users/{id}` signs out their phones at o
 quests and archives their agent (their chats and notes stay; the owner cannot be removed, 409). All
 four are owner-only (`require_owner` in `auth/deps.py`; app-api 0.8.0 removed these routes and the
 `x-owner-only` mark, and S-22.11 removes them here): a member
-gets 403 `owner_only`. The pairing link always names `https://marcel-bot.com/api` (the tunnel), like
-`marcel-hub pair`'s default. A member's brain workspace comes with S-17.7; a look picked from the name
+gets 403 `owner_only`. The pairing link names `<public_url>/api`, like `marcel-hub pair`'s default; without
+`public_url` it answers 409 `no_public_url`. A member's brain workspace comes with S-17.7; a look picked from the name
 when none is given comes with S-19.2.
 
 `marcel-hub agent create` still makes an extra agent for the owner (`--another`; each agent gets its
@@ -457,12 +458,12 @@ background watcher follows the runner's streams:
 `src/marcel_hub/cloud.py` (S-07.1). A `cloud` task runs in a claude.ai/code cloud session the
 runner opens (`POST /cloud/sessions`, `claude --cloud` on a pty). The NUC cannot watch a cloud
 session (SP3): all the hub learns is what the worker reports over HTTPS, plus a deadline watchdog.
-The hub must be up behind `marcel-bot.com` before any cloud worker runs.
+The hub must be up behind its `public_url` before any cloud worker runs; without `public_url` no cloud quest starts.
 
 - **Spawn.** The registry hands cloud tasks to `CloudTasks` (`CloudRouter`); the usage guard holds
   them like any task, the NUC's worker cap never does. The create carries `repo: {url}`
   (`https://github.com/<owner/name>`) and a prompt that starts with the worker protocol: the report
-  URL `https://marcel-bot.com/api/session/report`, the task's token, the body of each report kind
+  URL `<public_url>/api/session/report`, the task's token, the body of each report kind
   (`started`, `progress` with `next`, `artifact`, `note`, `done`, `failed`), the repo, and what
   Marcel expects back (a PR on the repo as a `pr` artifact) by when. The task's title and text come last,
   between two lines marked with a new random word, introduced as data that does not change how the

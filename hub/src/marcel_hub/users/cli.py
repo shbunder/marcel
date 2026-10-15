@@ -17,10 +17,11 @@ from sqlmodel import Session, col, select
 from marcel_hub import db
 from marcel_hub.app import SettingsError, load_settings
 from marcel_hub.auth.tokens import (
-    DEFAULT_HUB,
+    NO_PUBLIC_URL,
     OWNER_USER_ID,
     PAIRING_CODE_TTL,
     create_pairing_code,
+    hub_api,
     pairing_url,
 )
 from marcel_hub.models import Device
@@ -39,7 +40,7 @@ def setup(argv: list[str]) -> int:
         help=f'what the family calls the agent if it is made now (default {default_name})',
     )
     parser.add_argument(
-        '--hub', default=DEFAULT_HUB, help=f'the URL the phone uses (default {DEFAULT_HUB})'
+        '--hub', default=None, help='the URL the phone uses (default <public_url>/api)'
     )
     args = parser.parse_args(argv)
     try:
@@ -47,6 +48,7 @@ def setup(argv: list[str]) -> int:
     except SettingsError as exc:
         raise SystemExit(f'Nothing was changed. {exc}') from exc
 
+    hub = args.hub or (hub_api(settings.public_url) if settings.public_url else None)
     engine = db.make_engine(settings.db_path)
     try:
         db.upgrade(engine)
@@ -62,16 +64,19 @@ def setup(argv: list[str]) -> int:
             phones = session.exec(
                 select(func.count()).select_from(Device).where(col(Device.user_id) == OWNER_USER_ID)
             ).one()
-            code = None if phones else create_pairing_code(session)
+            code = None if phones or hub is None else create_pairing_code(session)
     finally:
         engine.dispose()
 
     if settings.brain_cwd is None:
         print('MARCEL_BRAIN_CWD is not set, so the hub will not start a brain.')
-    if code is None:
+    if hub is None and not phones:
+        print(f'No phone was paired. {NO_PUBLIC_URL}')
+        return 0
+    if code is None or hub is None:
         print(f'{owner.name} has {phones} paired phone(s). Pair another with: marcel-hub pair')
         return 0
-    url = pairing_url(args.hub, code)
+    url = pairing_url(hub, code)
     qr = io.StringIO()
     segno.make(url, error='m').terminal(out=qr, compact=True)
     minutes = int(PAIRING_CODE_TTL.total_seconds() // 60)

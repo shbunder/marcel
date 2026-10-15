@@ -15,8 +15,9 @@ read from: a cloned repository's `.claude/settings.json` can set environment var
 command Claude runs, and must not be able to point the token at its own server.
 
 - `~/.marcel/adopt-token`: the token. Must belong to you and be readable by you only.
-- `~/.marcel/hub-url` (optional): another hub, e.g. `https://hub.example.org`. Same checks; must
-  be https. Default `https://marcel-bot.com`.
+- `~/.marcel/hub-url`: your Marcel's address, e.g. `https://mac.tail1234.ts.net`, written by the
+  install and by `marcel connect`. Same checks; must be https. There is no built-in address: each
+  install has its own (S-22.2).
 - `MARCEL_ADOPT_TOKEN` (environment): the token itself, only when there is no token file, for a
   cloud session (set it as a secret of the cloud environment). It can only send a token to the
   hub above, never elsewhere.
@@ -40,7 +41,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-DEFAULT_HUB = 'https://marcel-bot.com'
 TOKEN_FILE = '.marcel/adopt-token'  # under the home directory
 HUB_FILE = '.marcel/hub-url'
 ADOPT_PATH = '/api/session/adopt'
@@ -58,6 +58,10 @@ GET_A_TOKEN = (
     'from a terminal on this computer: '
     '`mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, '
     'paste the token, press Enter and then Ctrl-D. Then run /marcel-adopt again.'
+)
+NO_HUB = (
+    'This computer does not know where your Marcel is yet. Run `marcel connect` first; it saves '
+    'the address in ~/.marcel/hub-url.'
 )
 
 Poster = Callable[[str, str, dict[str, Any], float], tuple[int, dict[str, Any]]]
@@ -173,13 +177,16 @@ def read_token(env: Mapping[str, str], home: Path) -> str:
 
 
 def hub_url(home: Path) -> str:
-    """The adopt address: on the default hub, or the one in `~/.marcel/hub-url`."""
+    """The adopt address on the hub in `~/.marcel/hub-url`."""
     path = home / HUB_FILE
-    url = (read_private(path, 'hub address') or DEFAULT_HUB).rstrip('/').removesuffix('/api')
+    saved = read_private(path, 'hub address')
+    if not saved:
+        raise AdoptError(NO_HUB)
+    url = saved.rstrip('/').removesuffix('/api')
     parts = urlsplit(url)
     if parts.scheme != 'https' or not parts.hostname or parts.query or parts.fragment:
         raise AdoptError(
-            f'{path} must hold an https:// address, such as {DEFAULT_HUB}. '
+            f'{path} must hold an https:// address, such as https://mac.tail1234.ts.net. '
             'Fix it or remove the file.'
         )
     return url + ADOPT_PATH

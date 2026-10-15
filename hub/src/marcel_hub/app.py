@@ -58,6 +58,7 @@ from marcel_hub import (
     watchdog,
     ws,
 )
+from marcel_hub.auth.tokens import NO_PUBLIC_URL
 from marcel_hub.avatar import routes as avatar_routes
 from marcel_hub.runner_client import (
     OffsetStore,
@@ -103,6 +104,10 @@ class Settings:
     tz: str = 'Europe/Brussels'
     # S-11.1: the redeploy flag the host's `marcel-redeploy.path` unit watches.
     redeploy_flag: Path = DEFAULT_HOME / 'state' / 'redeploy.flag'
+    # S-22.2: this install's own address, e.g. https://mac.tail1234.ts.net. Pairing links use
+    # `<public_url>/api`, cloud quests report to `<public_url>/api/session/report`. None: no pairing
+    # and no cloud quests until `marcel connect` sets it.
+    public_url: str | None = None
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -143,6 +148,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         'github_token',
         'tz',
         'redeploy_flag',
+        'public_url',
     }
     unknown = set(values) - known
     if unknown:
@@ -171,6 +177,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             else None,
             tz=_tz(values.get('tz', 'Europe/Brussels')),
             redeploy_flag=Path(values.get('redeploy_flag', home / 'state' / 'redeploy.flag')),
+            public_url=_public_url(values.get('public_url')),
         )
     except ValueError as exc:
         raise SettingsError(f'The port must be a number: {exc}.') from exc
@@ -178,6 +185,22 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         raise SettingsError(
             f'A setting in {config_path} has the wrong type: {exc}. Use text for paths.'
         ) from exc
+
+
+def _public_url(value: Any) -> str | None:
+    if not value:
+        return None
+    url = str(value).strip().rstrip('/')
+    if not url.startswith('https://'):
+        raise SettingsError(
+            "public_url must be this hub's https address, e.g. https://mac.tail1234.ts.net, "
+            f'not {url!r}.'
+        )
+    if url.endswith('/api'):
+        raise SettingsError(
+            f'public_url is the address without /api: {url.removesuffix("/api")!r}.'
+        )
+    return url
 
 
 def _ntfy_server(value: Any) -> str | None:
@@ -251,6 +274,7 @@ def _is_setting(name: str) -> bool:
         'MARCEL_GITHUB_TOKEN',
         'MARCEL_TZ',
         'MARCEL_REDEPLOY_FLAG',
+        'MARCEL_PUBLIC_URL',
     }
 
 
@@ -285,6 +309,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if not settings.public_url:  # S-22.2: said once; pairing and cloud quests wait for it
+            log.warning(NO_PUBLIC_URL)
         db.upgrade(engine)
         with Session(engine) as session:  # S-17.1: the owner's row, before the first request
             users.ensure_owner(session, settings.owner_name)
@@ -414,7 +440,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     repo = memory.install(app)
     channel.install(app, gateway, registry, watch)  # after artifacts: reports store through it
     # S-07.1: cloud tasks open claude.ai/code sessions; their reports and a deadline watchdog.
-    clouds = cloud.install(app, registry, gateway, client, settings.data_dir)
+    clouds = cloud.install(app, registry, gateway, client, settings.data_dir, settings.public_url)
     # S-07.2: `POST /api/session/report`, where cloud workers report with their task's token.
     report_api.install(app, clouds)
     # S-05.4: `/marcel-adopt` hands a session Marcel did not start to it, as an adopted task.

@@ -23,8 +23,14 @@ CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 CODE_LENGTH = 8
 
 PAIR_AGAIN = 'Run `marcel-hub pair` again for a new one.'
-# The address the phone reaches the hub at, through the tunnel; a pairing link carries it.
-DEFAULT_HUB = 'https://marcel-bot.com/api'
+# Without the hub setting `public_url` there is no address to put in a pairing link (S-22.2).
+NO_PUBLIC_URL = 'No public address yet: run `marcel connect`.'
+
+
+def hub_api(public_url: str) -> str:
+    """The address a phone reaches the hub's API at: `<public_url>/api`."""
+    return f'{public_url}/api'
+
 
 # `POST /pair` is public. After this many unknown codes in a window it refuses every code, the
 # right one too, until the window ends: guessing a live 40-bit code then takes centuries.

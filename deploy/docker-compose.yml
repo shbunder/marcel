@@ -23,6 +23,8 @@ services:
       # so every path is set below and nothing falls back to it.
       MARCEL_HOST: 0.0.0.0
       MARCEL_CONFIG: /data/marcel.toml
+      # This install's own address (S-22.2): pairing links and cloud reports use it.
+      MARCEL_PUBLIC_URL: https://marcel-bot.com
       MARCEL_DATA_DIR: /data
       MARCEL_RUNNER_SOCK: /run/marcel/runner.sock
       MARCEL_REDEPLOY_FLAG: /state/redeploy.flag

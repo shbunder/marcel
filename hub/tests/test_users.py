@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,12 @@ def owner_only_operations() -> list[tuple[str, str]]:
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
-    settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun')
+    settings = Settings(
+        data_dir=tmp_path,
+        db_path=tmp_path / 'marcel.db',
+        owner_name='Shaun',
+        public_url='https://mac.tail1234.ts.net',
+    )
     with TestClient(create_app(settings)) as c:
         yield c
 
@@ -173,6 +179,25 @@ def test_a_phone_paired_with_a_members_code_belongs_to_that_member(client: TestC
     assert [a['name'] for a in me['agents']] == ['Pip']
 
 
+def test_a_pairing_link_carries_the_hubs_public_address(client: TestClient) -> None:
+    owner = owner_phone(client)
+    emma = add_emma(client, owner)
+    issued = client.post(f'/api/users/{emma["id"]}/pairing-codes', headers=owner).json()
+    assert 'hub=https%3A%2F%2Fmac.tail1234.ts.net%2Fapi' in issued['link']
+
+
+def test_no_pairing_code_without_a_public_address(client: TestClient) -> None:
+    owner = owner_phone(client)
+    emma = add_emma(client, owner)
+    client.app.state.settings = replace(client.app.state.settings, public_url=None)  # type: ignore[attr-defined]
+    res = client.post(f'/api/users/{emma["id"]}/pairing-codes', headers=owner)
+    assert res.status_code == 409
+    assert res.json() == {
+        'code': 'no_public_url',
+        'message': 'No public address yet: run `marcel connect`.',
+    }
+
+
 def test_a_pairing_code_for_nobody_is_404(client: TestClient) -> None:
     res = client.post('/api/users/usr_nobody/pairing-codes', headers=owner_phone(client))
     assert res.status_code == 404 and res.json()['code'] == 'user_not_found'
@@ -272,6 +297,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv('MARCEL_CONFIG', str(tmp_path / 'none.toml'))
     monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
     monkeypatch.setenv('MARCEL_OWNER_NAME', 'Shaun')
+    monkeypatch.setenv('MARCEL_PUBLIC_URL', 'https://mac.tail1234.ts.net')
     monkeypatch.setenv('MARCEL_BRAIN_CWD', '/home/owner/marcel/brain')
     return tmp_path
 
@@ -326,10 +352,26 @@ def test_setup_reuses_the_agent_that_agent_create_made(
     assert (after.slug, after.look_animal) == ('marcel', 'giraffe')
 
 
+def test_setup_without_a_public_address_pairs_no_phone_and_says_why(
+    env: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv('MARCEL_PUBLIC_URL')
+    out = run(['setup'], capsys)
+    assert 'Made Marcel' in out
+    assert 'No phone was paired. No public address yet: run `marcel connect`.' in out
+    assert 'marcel://pair' not in out
+
+
 def test_setup_pairs_only_the_first_phone(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(['setup'], capsys)
     eng = db.make_engine(env / 'marcel.db')
-    with TestClient(create_app(Settings(data_dir=env, db_path=env / 'marcel.db'))) as c:
+    with TestClient(
+        create_app(
+            Settings(
+                data_dir=env, db_path=env / 'marcel.db', public_url='https://mac.tail1234.ts.net'
+            )
+        )
+    ) as c:
         owner_phone(c)
     eng.dispose()
     out = run(['setup'], capsys)
