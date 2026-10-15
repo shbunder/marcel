@@ -62,6 +62,11 @@ HUB_ONLY_NOTE_KEYS = frozenset({'prompt', 'client_id'})
 FOLLOW_UP_SENT = 'A follow-up was sent'
 
 
+# Stored on a task but not in app-api's `Task`: the worktree path; whether it is its project's
+# kickoff quest (S-20.3, brain-api only).
+HUB_ONLY_TASK_FIELDS = frozenset({'worktree', 'kickoff'})
+
+
 class TaskNotFound(Exception):
     def __init__(self, task_id: str) -> None:
         super().__init__(f'There is no task {task_id}.')
@@ -180,7 +185,7 @@ class TaskRegistry:
         """The contract's `Task`: unset fields left out, plus open approvals and artifact count."""
         body: dict[str, Any] = {}
         for name, value in task.model_dump().items():
-            if value is None or name == 'worktree':
+            if value is None or name in HUB_ONLY_TASK_FIELDS:
                 continue
             body[name] = iso(value) if isinstance(value, datetime) else value
         with Session(self.engine) as s:

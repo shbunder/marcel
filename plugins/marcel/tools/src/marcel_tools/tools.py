@@ -363,6 +363,11 @@ TOOLS: list[Tool] = [
                 'description': 'How long it should take; silence after that is reported.',
             },
             message_id={**ID, 'description': 'The owner’s message that asked for this.'},
+            kickoff={
+                'type': 'boolean',
+                'description': 'Only for the project-kickoff quest (needs "project"): the only '
+                'quest that may set the project’s tracker.',
+            },
         ),  # fmt: skip
         tasks_spawn,
         {

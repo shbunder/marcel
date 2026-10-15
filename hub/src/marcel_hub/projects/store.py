@@ -291,6 +291,20 @@ class ProjectStore:
         except (MemoryUnavailable, InvalidMemoryPath, MemoryFileNotFound) as exc:
             log.warning('The notes file for project %s was not made: %s', project.slug, exc)
 
+    def tracker_refusal(self, task_id: str) -> str | None:
+        """Why this task may not set its project's tracker, or None when it may (S-20.3): only
+        the project's kickoff quest sets or replaces it, so a quest gone wrong, or text a quest
+        read on a web page, cannot point the project somewhere else."""
+        with Session(self.engine) as s:
+            task = s.get(Task, task_id)
+            if task is None or not task.kickoff:
+                log.warning(
+                    "Task %s reported a tracker but is not its project's kickoff quest; refused.",
+                    task_id,
+                )
+                return "Only the project's kickoff quest sets its tracker."
+        return None
+
     def set_tracker(self, task_id: str, url: str) -> None:
         """A worker reported its project's tracker (B-46, a `link` with `role: tracker`): the
         task's project (its agent's inbox when it has none) gets `tracker_url`, replacing an

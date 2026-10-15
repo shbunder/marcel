@@ -7,7 +7,8 @@
       "skill_says": [
         "publish `templates/tracker/tracker.html` from this plugin",
         "`set` the doc `meta/project` to `{name, repo, goal}`",
-        "role: \"tracker\"})`. Only the channel carries `role`, which is why a Kickoff runs on the NUC."
+        "role: \"tracker\"})`; any other url is refused. Only the channel carries `role`, which is why a Kickoff runs on the NUC.",
+        "`kickoff: true` (only a kickoff quest may set the project's tracker"
       ],
       "calls": [
         {

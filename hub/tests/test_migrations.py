@@ -182,3 +182,20 @@ def test_0012_credits_every_agent_message_to_its_conversations_agent(tmp_path: P
     assert 'agent_id' not in columns(engine, 'message')
     db.upgrade(engine)
     assert 'agent_id' in columns(engine, 'message')
+
+
+def test_0013_marks_no_existing_task_as_a_kickoff(tmp_path: Path) -> None:
+    engine = v1(tmp_path / 'marcel.db')
+    db.upgrade(engine, '0012')
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO task (id, agent_id, project_id, title, location, state, model, origin, "
+            "created_at, updated_at) VALUES ('tsk_1', 'agt_marcel', 'prj_garden', 'T', 'nuc', "
+            f"'working', 'sonnet', 'marcel', {NOW}, {NOW})"))  # fmt: skip
+    db.upgrade(engine)
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT kickoff FROM task')).scalars().all() == [0]
+    db.downgrade(engine, '0012')
+    assert 'kickoff' not in columns(engine, 'task')
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT id FROM task')).scalars().all() == ['tsk_1']

@@ -15,8 +15,9 @@ description: How a coding project starts well - the one Kickoff quest that adds 
 - Start **one** quest, before or alongside the owner's own request, never instead of it:
   `tasks_spawn` with `title: "Kickoff <repo name>"`, `location: nuc` (only the NUC's clone has this
   plugin, so a cloud session would not find this skill or its script), the `repo`, the project's
-  slug, `expected_minutes: 20`, and a prompt that says: "Follow the project-kickoff skill for this
-  repo."
+  slug, `expected_minutes: 20`, `kickoff: true` (only a kickoff quest may set the project's
+  tracker; any other quest's tracker is refused), and a prompt that says: "Follow the
+  project-kickoff skill for this repo."
 - Say it in the same line as the rest: "Made *Garden planner* and started *Kickoff garden-planner* on
   the NUC: it adds what the repo lacks for Claude Code."
 - Do not start a second Kickoff for the same repo. `tasks_list` with the project shows whether one ran.
@@ -46,8 +47,8 @@ description: How a coding project starts well - the one Kickoff quest that adds 
    claude.ai artifact with the `db` capability (the `Artifact` tool; keep the file in your own job
    folder), titled "<project name> tracker". With `ArtifactData`, `set` the doc `meta/project` to
    `{name, repo, goal}`, then report it:
-   `report(artifact, {kind: "link", title: "<project name> tracker", url: "<its https://claude.ai link>",
-   role: "tracker"})`. Only the channel carries `role`, which is why a Kickoff runs on the NUC.
+   `report(artifact, {kind: "link", title: "<project name> tracker", url: "<its
+   https://claude.ai/artifact/<id> link>", role: "tracker"})`; any other url is refused. Only the channel carries `role`, which is why a Kickoff runs on the NUC.
    Add this quest's own card (see the worker-protocol skill, "The project's tracker").
 8. `report(note)` with "How to check the work: `<check command>`", then `report(done)` with a summary
    that names the check command and lists what the PR adds.

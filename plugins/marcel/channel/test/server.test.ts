@@ -583,17 +583,21 @@ describe('report', () => {
     const tracker = { kind: 'link', title: 'Garden planner tracker', url: 'https://claude.ai/artifact/Tr4cker01', role: 'tracker' };
     expect(text(await h.callTool('report', { kind: 'artifact', artifact: tracker }))).toBe('Sent.');
     expect(h.hub.of('report')[0]?.artifact).toEqual(tracker);
+    const code = { ...tracker, url: 'https://claude.ai/code/artifact/0b8c1f9e-tracker' };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: code }))).toBe('Sent.');
     const bad: [Record<string, unknown>, RegExp][] = [
       [{ ...tracker, role: 'board' }, /can only be "tracker"/],
-      [{ ...tracker, url: 'http://claude.ai/artifact/x' }, /https/],
-      [{ kind: 'pr', title: 'PR', url: 'https://github.com/a/b/pull/1', role: 'tracker' }, /"link" artifact/],
+      [{ ...tracker, url: 'http://claude.ai/artifact/x' }, /a tracker is a claude\.ai artifact link/],
+      [{ ...tracker, url: 'https://github.com/a/b/issues' }, /a tracker is a claude\.ai artifact link/],
+      [{ ...tracker, url: 'https://claude.ai.evil.example/artifact/x' }, /a tracker is a claude\.ai artifact link/],
+      [{ kind: 'pr', title: 'PR', url: 'https://github.com/a/b/pull/1', role: 'tracker' }, /a tracker is a claude\.ai artifact link/],
     ];
     for (const [artifact, pattern] of bad) {
       const res = await h.callTool('report', { kind: 'artifact', artifact });
       expect(res.result?.isError, JSON.stringify(artifact)).toBe(true);
       expect(text(res)).toMatch(pattern);
     }
-    expect(h.hub.of('report')).toHaveLength(1);
+    expect(h.hub.of('report')).toHaveLength(2);
   });
 
   it("passes every recorded worker report through unchanged (tools/tests/worker_replays.json)", async () => {

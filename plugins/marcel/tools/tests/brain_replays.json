@@ -99,7 +99,8 @@
             "location": "nuc",
             "repo": "shbunder/garden-planner",
             "project": "garden-planner",
-            "expected_minutes": 20
+            "expected_minutes": 20,
+            "kickoff": true
           }
         },
         {

@@ -29,5 +29,6 @@ def install(
     gateway = getattr(app.state, 'channel', None)
     if gateway is not None:
         gateway.trackers = store.set_tracker  # S-20.2: a worker's `role: tracker` link
+        gateway.tracker_refusal = store.tracker_refusal  # S-20.3: only the kickoff quest
     app.include_router(router)
     return store

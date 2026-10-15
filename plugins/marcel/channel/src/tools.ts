@@ -26,7 +26,7 @@ const ARTIFACT_SCHEMA = {
     summary: { type: 'string', maxLength: MAX_ARTIFACT_SUMMARY_CHARS, description: 'What changed in this version, in one line.' },
     role: {
       enum: ['tracker'],
-      description: "Only for a Kickoff quest's tracker: a link (https) to the project's claude.ai tracker. Marcel then shows it on the project.",
+      description: "Only for a Kickoff quest's tracker: its https://claude.ai/artifact/<id> link. Marcel then shows it on the project; any other quest's tracker is refused.",
     },
   },
   required: ['kind', 'title'],
@@ -122,8 +122,9 @@ function buildArtifact(raw: unknown): Built<Artifact> {
   }
   if (a.role !== undefined) {
     if (a.role !== 'tracker') return { ok: false, error: 'an artifact "role" can only be "tracker".' };
-    if (artifact.kind !== 'link' || !artifact.url?.startsWith('https://')) {
-      return { ok: false, error: 'a tracker is a "link" artifact with an https:// "url".' };
+    // S-20.3 (channel `Artifact.role`): a tracker is a claude.ai artifact link, nothing else.
+    if (artifact.kind !== 'link' || !/^https:\/\/claude\.ai\/(code\/)?artifact\/[A-Za-z0-9_-]+$/.test(artifact.url ?? '')) {
+      return { ok: false, error: 'a tracker is a claude.ai artifact link.' };
     }
     artifact.role = 'tracker';
   }

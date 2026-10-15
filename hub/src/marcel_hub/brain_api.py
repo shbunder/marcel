@@ -459,6 +459,7 @@ class NewTask(BaseModel):
     model: str | None = Field(default=None, pattern=MODEL)
     expected_minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
     message_id: str | None = Field(default=None, min_length=1, max_length=MAX_REF)
+    kickoff: bool = False  # B-45: the project's kickoff quest (brain-api 0.1.5)
 
 
 class Steer(BaseModel):
@@ -487,6 +488,11 @@ async def spawn_task(request: Request, brain: BrainDep) -> Any:
         return bad_request('location must be "nuc" or "cloud".')
     if body.location == TaskLocation.cloud.value and body.repo is None:
         return bad_request('A cloud task needs "repo" (owner/name): it works on GitHub only.')
+    if body.kickoff and body.project is None:
+        return bad_request(
+            'A kickoff quest needs "project": it is the kickoff of that project, the only quest '
+            'that sets its tracker.'
+        )
     project = _live_project(request, brain, body.project)
     if isinstance(project, JSONResponse):
         return project
@@ -510,6 +516,8 @@ async def spawn_task(request: Request, brain: BrainDep) -> Any:
         fields['parent_message_id'] = body.message_id
     if body.expected_minutes is not None:
         fields['expected_by'] = utcnow() + timedelta(minutes=body.expected_minutes)
+    if body.kickoff:
+        fields['kickoff'] = True
     registry = _tasks(request)
     task = await registry.spawn(
         brain.agent_id,

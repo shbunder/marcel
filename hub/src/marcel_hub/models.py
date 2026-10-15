@@ -302,6 +302,9 @@ class Task(SQLModel, table=True):
     last_activity_at: datetime | None = None
     expected_by: datetime | None = None
     archived_at: datetime | None = None
+    # B-45, S-20.3: the project's kickoff quest, the only one that may set its tracker. Not in the
+    # app-api `Task`; the brain sets it with brain-api `NewTask.kickoff`.
+    kickoff: bool = Field(default=False, sa_column_kwargs={'server_default': '0'})
 
 
 class TaskEvent(SQLModel, table=True):

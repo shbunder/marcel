@@ -180,6 +180,8 @@ class Gateway:
         self.memory: MemoryRepo | None = None  # where a worker's notes go (`install` sets it)
         # S-20.2: (task id, url) → set the task's project's tracker (`projects.install` sets it).
         self.trackers: Callable[[str, str], None] | None = None
+        # S-20.3: task id → why it may not set a tracker (None: it may). Without it, none may.
+        self.tracker_refusal: Callable[[str], str | None] | None = None
         self.tz: tzinfo = UTC  # the owner's time zone: a note's date
         # `replaced` replies passed on and not delivered yet: call id → (target, seq). An entry
         # goes when the new session acks its frame, so this holds only what is in flight.
@@ -440,6 +442,14 @@ class Gateway:
         reported += frame.get('artifacts', [])
         # A new version of an artifact the task may not update refuses the whole report, before
         # anything is stored: the worker learns at once, and nothing half-lands.
+        if any(a.get('role') == 'tracker' for a in reported):  # S-20.3: before anything is kept
+            why = (
+                self.tracker_refusal(task_id)
+                if self.tracker_refusal is not None
+                else "Only the project's kickoff quest sets its tracker."
+            )
+            if why is not None:
+                raise CallRefused('not_kickoff', why)
         for artifact in reported:
             if artifact.get('artifact_id') is None:
                 continue

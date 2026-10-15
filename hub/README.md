@@ -836,12 +836,20 @@ while the owner has no agent, and never overwrites a file: a non-empty clash is 
   existing agent its inbox and filed existing tasks and artifacts there. Its downgrade keeps every
   row: it turns foreign keys off while it rebuilds the tables, and `db.downgrade` then drops the
   pooled connections so the next one has them on again.
-- **Tracker (B-46, S-20.2).** A worker's `report(artifact)` of a `link` with `role: tracker` (only
-  `link`, only `https://`; anything else is refused `bad_report`) is stored as an item like any
-  link, and its task's project (its agent's inbox when it has none) gets `tracker_url`, replacing an
-  earlier one, with `project.updated`. Every quest in a project with a tracker finds
-  `Tracker: <url> (your card: cards/<task id>)` in its briefing. The page is
-  `plugins/marcel/templates/tracker/`.
+- **Tracker (B-46, S-20.2, S-20.3).** A worker's `report(artifact)` of a `link` with
+  `role: tracker` sets its task's project's `tracker_url` (its agent's inbox when it has none),
+  replacing an earlier one, with `project.updated`; the link is also kept as an item. Two rules, so a
+  quest gone wrong, or text a quest read on a web page, cannot point the project somewhere else:
+  - **only a claude.ai artifact**: the url must be `https://claude.ai/artifact/<id>` or
+    `https://claude.ai/code/artifact/<id>` (`frames.TRACKER_URL`); anything else is refused
+    `bad_report`, "a tracker is a claude.ai artifact link" (the channel server says the same first);
+  - **only the kickoff quest**: the task must be its project's kickoff (`Task.kickoff`, set by the
+    brain with `tasks_spawn` `kickoff: true`, which needs `project`; migration 0013). Any other
+    quest's tracker report is refused `not_kickoff`, "Only the project's kickoff quest sets its
+    tracker.", before anything is kept, with one log line naming the task
+    (`ProjectStore.tracker_refusal`).
+  Every quest in a project with a tracker finds `Tracker: <url> (your card: cards/<task id>)` in its
+  briefing. The page is `plugins/marcel/templates/tracker/`.
 - **Slugs** match `^[a-z0-9][a-z0-9-]{0,39}$` (400 otherwise). Without one, the slug is made from
   the name (`Energy contracts` → `energy-contracts`, then `-2`, `-3` … if taken). A slug asked for
   that a live project of the agent already has answers 409 `slug_taken`; the database index

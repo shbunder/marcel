@@ -20,6 +20,6 @@ def test_a_new_project_with_a_repo_gets_a_kickoff_quest(world: World, tmp_path: 
         project = s.exec(select(Project).where(Project.slug == 'garden-planner')).one()
         tasks = s.exec(select(Task)).all()
     assert project.repo == 'shbunder/garden-planner'
-    assert [(t.title, t.project_id, t.repo) for t in tasks] == [
-        ('Kickoff garden-planner', project.id, 'shbunder/garden-planner')
-    ]
+    assert [(t.title, t.project_id, t.repo, t.kickoff) for t in tasks] == [
+        ('Kickoff garden-planner', project.id, 'shbunder/garden-planner', True)
+    ]  # the kickoff mark: only it may set the project's tracker (S-20.3)

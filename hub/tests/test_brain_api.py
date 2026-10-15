@@ -212,6 +212,20 @@ def test_spawn_files_the_task_in_a_project_by_slug_or_id(brain: Brain) -> None:
     assert by_slug['project_id'] == by_id['project_id'] == project['id']
 
 
+def test_a_kickoff_quest_needs_its_project_and_is_marked(brain: Brain) -> None:
+    """S-20.3 (brain-api 0.1.5): only a project's kickoff quest may set its tracker."""
+    res = spawn(brain, kickoff=True)
+    assert res.status_code == 400
+    assert 'A kickoff quest needs "project"' in res.json()['message']
+    brain.post('/projects', {'name': 'Garden planner'})
+    kickoff = spawn(brain, project='garden-planner', kickoff=True).json()
+    plain = spawn(brain, project='garden-planner').json()
+    assert 'kickoff' not in kickoff  # brain-api's own field, not app-api's `Task`
+    with Session(brain.hub.engine) as s:
+        marked = {t.id: t.kickoff for t in s.exec(select(Task))}
+    assert marked[kickoff['id']] is True and marked[plain['id']] is False
+
+
 def test_spawn_into_an_unknown_or_archived_project_is_refused(brain: Brain) -> None:
     res = spawn(brain, project='nowhere')
     assert res.status_code == 404 and 'projects_list' in res.json()['message']

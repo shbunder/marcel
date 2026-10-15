@@ -43,6 +43,8 @@ ARTIFACT_FIELDS: dict[str, bool] = {
     'summary': False, 'role': False,
 }  # fmt: skip
 ARTIFACT_ROLES = frozenset({'tracker'})  # B-46: the project's tracker (`role` in channel 0.7)
+# S-20.3 (channel `Artifact.role`, S-02.13): a tracker is a claude.ai artifact, nothing else.
+TRACKER_URL = re.compile(r'https://claude\.ai/(code/)?artifact/[A-Za-z0-9_-]+')
 STRINGS = frozenset(
     {'session_id', 'secret', 'plugin_version', 'call_id', 'text', 'in_reply_to', 'kind', 'summary',
      'request_id', 'tool_name', 'description', 'input_preview', 'title', 'url', 'path',
@@ -110,8 +112,8 @@ def check_artifact(artifact: Any) -> dict[str, Any]:
     if 'role' in artifact:
         if artifact['role'] not in ARTIFACT_ROLES:
             raise BadFrame(f'unknown artifact role {artifact["role"]!r}')
-        if kind != 'link' or not artifact['url'].startswith('https://'):
-            raise BadFrame('a tracker is a link artifact with an https:// url')
+        if kind != 'link' or not TRACKER_URL.fullmatch(artifact['url']):
+            raise BadFrame('a tracker is a claude.ai artifact link')
     return artifact
 
 
