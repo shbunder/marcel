@@ -422,7 +422,12 @@ class ProjectStore:
             except (InvalidMemoryPath, MemoryFileNotFound):
                 notes = None
         has_notes = notes is not None and notes[0].strip() != ''
-        if project.slug == INBOX_SLUG and not project.instructions and not has_notes:
+        if (
+            project.slug == INBOX_SLUG
+            and not project.instructions
+            and not has_notes
+            and not (project.tracker_url)
+        ):
             return ''
         parts = [f'# Project: {project.name}']
         if project.goal:

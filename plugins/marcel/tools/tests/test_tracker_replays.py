@@ -67,7 +67,10 @@ def test_the_kickoff_publishes_the_tracker_then_reports_it() -> None:
     ][0]  # fmt: skip
 
 
-@pytest.mark.parametrize('replay', sorted(REPLAYS))
+MOVERS = sorted(r for r in REPLAYS if REPLAYS[r]['moves_card'])
+
+
+@pytest.mark.parametrize('replay', MOVERS)
 def test_a_quest_moves_only_its_own_card_in_progress_then_review(replay: str) -> None:
     task_id = REPLAYS[replay]['task_id']
     sequence = REPLAYS[replay]['calls']
@@ -94,6 +97,18 @@ def test_the_coding_quest_logs_each_move() -> None:
     assert [(entry['data']['card'], entry['data']['text']) for entry in logs] == [
         ('tsk_login', 'In Progress'), ('tsk_login', 'Review: PR #14'),
     ]  # fmt: skip
+
+
+def test_a_quest_that_cannot_reach_the_tracker_says_so_and_finishes() -> None:
+    sequence = REPLAYS['coding-quest-tracker-unreachable']['calls']
+    failed = next(i for i, c in enumerate(sequence) if 'error' in c)
+    note = sequence[failed + 1]['input']
+    assert (note['kind'], note['text'].startswith('Could not update the tracker: ')) == (
+        'note',
+        True,
+    )
+    assert sequence[-1]['input']['kind'] == 'done'  # the tracker never fails the quest
+    assert [c['input']['kind'] for c in sequence if c['tool'] == 'report'].count('failed') == 0
 
 
 def test_the_digest_moves_merged_prs_to_done() -> None:

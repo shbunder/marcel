@@ -24,6 +24,10 @@ const ARTIFACT_SCHEMA = {
       description: 'To update an item you were given, its id: this becomes a new version of it instead of a new item.',
     },
     summary: { type: 'string', maxLength: MAX_ARTIFACT_SUMMARY_CHARS, description: 'What changed in this version, in one line.' },
+    role: {
+      enum: ['tracker'],
+      description: "Only for a Kickoff quest's tracker: a link (https) to the project's claude.ai tracker. Marcel then shows it on the project.",
+    },
   },
   required: ['kind', 'title'],
 };
@@ -115,6 +119,13 @@ function buildArtifact(raw: unknown): Built<Artifact> {
     if (!isString(a.summary)) return { ok: false, error: 'an artifact "summary" must be a string.' };
     if (charCount(a.summary) > MAX_ARTIFACT_SUMMARY_CHARS) return { ok: false, error: `an artifact "summary" is longer than ${MAX_ARTIFACT_SUMMARY_CHARS} characters; shorten it.` };
     artifact.summary = a.summary;
+  }
+  if (a.role !== undefined) {
+    if (a.role !== 'tracker') return { ok: false, error: 'an artifact "role" can only be "tracker".' };
+    if (artifact.kind !== 'link' || !artifact.url?.startsWith('https://')) {
+      return { ok: false, error: 'a tracker is a "link" artifact with an https:// "url".' };
+    }
+    artifact.role = 'tracker';
   }
   if (['pr', 'branch', 'link'].includes(artifact.kind) && !artifact.url) return { ok: false, error: `a ${artifact.kind} artifact needs a "url".` };
   if (['doc', 'file', 'dashboard'].includes(artifact.kind) && !artifact.path) return { ok: false, error: `a ${artifact.kind} artifact needs a "path".` };

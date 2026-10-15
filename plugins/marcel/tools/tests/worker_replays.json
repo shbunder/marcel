@@ -10,15 +10,103 @@
         "role: \"tracker\"})`. Only the channel carries `role`, which is why a Kickoff runs on the NUC."
       ],
       "calls": [
-        {"tool": "report", "input": {"kind": "started", "text": "Looking at what shbunder/garden-planner lacks."}},
-        {"tool": "Artifact", "input": {"action": "publish", "file_path": "/home/owner/.claude/jobs/k1/tmp/tracker.html", "title": "Garden planner tracker", "capabilities": {"db": {}}}},
-        {"tool": "ArtifactData", "input": {"action": "set", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "meta", "doc_id": "project", "data": {"name": "Garden planner", "repo": "shbunder/garden-planner", "goal": "Plan the spring planting."}}},
-        {"tool": "report", "input": {"kind": "artifact", "artifact": {"kind": "link", "title": "Garden planner tracker", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "role": "tracker"}}},
-        {"tool": "ArtifactData", "input": {"action": "set", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "cards", "doc_id": "tsk_kickoff", "data": {"title": "Add what Claude Code needs", "quest": "Kickoff garden-planner", "status": "In Progress", "updated_at": "2026-10-15T09:00:00Z", "by": "Marcel"}}},
-        {"tool": "report", "input": {"kind": "artifact", "artifact": {"kind": "pr", "title": "Kickoff: what Claude Code needs in this repo", "url": "https://github.com/shbunder/garden-planner/pull/1"}}},
-        {"tool": "ArtifactData", "input": {"action": "update", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "cards", "doc_id": "tsk_kickoff", "if_version": 1, "data": {"status": "Review", "pr_url": "https://github.com/shbunder/garden-planner/pull/1", "ci": "pending", "waiting": true, "updated_at": "2026-10-15T09:14:00Z"}}},
-        {"tool": "report", "input": {"kind": "done", "summary": "PR #1 adds a CLAUDE.md naming `make check`, the check, CI and a PR template. The tracker is ready."}}
-      ]
+        {
+          "tool": "report",
+          "input": {
+            "kind": "started",
+            "text": "Looking at what shbunder/garden-planner lacks."
+          }
+        },
+        {
+          "tool": "Artifact",
+          "input": {
+            "action": "publish",
+            "file_path": "/home/owner/.claude/jobs/k1/tmp/tracker.html",
+            "title": "Garden planner tracker",
+            "capabilities": {
+              "db": {}
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "meta",
+            "doc_id": "project",
+            "data": {
+              "name": "Garden planner",
+              "repo": "shbunder/garden-planner",
+              "goal": "Plan the spring planting."
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "artifact",
+            "artifact": {
+              "kind": "link",
+              "title": "Garden planner tracker",
+              "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+              "role": "tracker"
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "cards",
+            "doc_id": "tsk_kickoff",
+            "data": {
+              "title": "Add what Claude Code needs",
+              "quest": "Kickoff garden-planner",
+              "status": "In Progress",
+              "updated_at": "2026-10-15T09:00:00Z",
+              "by": "Marcel"
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "artifact",
+            "artifact": {
+              "kind": "pr",
+              "title": "Kickoff: what Claude Code needs in this repo",
+              "url": "https://github.com/shbunder/garden-planner/pull/1"
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "update",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "cards",
+            "doc_id": "tsk_kickoff",
+            "if_version": 1,
+            "data": {
+              "status": "Review",
+              "pr_url": "https://github.com/shbunder/garden-planner/pull/1",
+              "ci": "pending",
+              "waiting": true,
+              "updated_at": "2026-10-15T09:14:00Z"
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "done",
+            "summary": "PR #1 adds a CLAUDE.md naming `make check`, the check, CI and a PR template. The tracker is ready."
+          }
+        }
+      ],
+      "moves_card": true
     },
     "coding-quest-card": {
       "skill": "worker-protocol",
@@ -30,14 +118,168 @@
         "never set `Done`: the evening digest does that once the PR is merged."
       ],
       "calls": [
-        {"tool": "report", "input": {"kind": "started", "text": "Reproducing the flaky login test."}},
-        {"tool": "ArtifactData", "input": {"action": "set", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "cards", "doc_id": "tsk_login", "data": {"title": "Fix the flaky login test", "quest": "Fix flaky login test", "status": "In Progress", "updated_at": "2026-10-15T10:00:00Z", "by": "Marcel"}}},
-        {"tool": "ArtifactData", "input": {"action": "set", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "log", "doc_id": "20261015T1000-tsk_login", "data": {"at": "2026-10-15T10:00:00Z", "card": "tsk_login", "kind": "status", "text": "In Progress", "by": "Marcel"}}},
-        {"tool": "report", "input": {"kind": "progress", "text": "Found the race in the session mock.", "next": ["Write the fix", "Open a pull request"]}},
-        {"tool": "report", "input": {"kind": "artifact", "artifact": {"kind": "pr", "title": "Fix the flaky login test", "url": "https://github.com/shbunder/garden-planner/pull/14"}}},
-        {"tool": "ArtifactData", "input": {"action": "update", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "cards", "doc_id": "tsk_login", "if_version": 1, "data": {"status": "Review", "pr_url": "https://github.com/shbunder/garden-planner/pull/14", "ci": "passing", "waiting": true, "updated_at": "2026-10-15T10:40:00Z"}}},
-        {"tool": "ArtifactData", "input": {"action": "set", "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01", "collection": "log", "doc_id": "20261015T1040-tsk_login", "data": {"at": "2026-10-15T10:40:00Z", "card": "tsk_login", "kind": "status", "text": "Review: PR #14", "by": "Marcel"}}},
-        {"tool": "report", "input": {"kind": "done", "summary": "Fixed: the login test no longer fails. PR #14 is ready."}}
+        {
+          "tool": "report",
+          "input": {
+            "kind": "started",
+            "text": "Reproducing the flaky login test."
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "cards",
+            "doc_id": "tsk_login",
+            "data": {
+              "title": "Fix the flaky login test",
+              "quest": "Fix flaky login test",
+              "status": "In Progress",
+              "updated_at": "2026-10-15T10:00:00Z",
+              "by": "Marcel"
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "log",
+            "doc_id": "20261015T1000-tsk_login",
+            "data": {
+              "at": "2026-10-15T10:00:00Z",
+              "card": "tsk_login",
+              "kind": "status",
+              "text": "In Progress",
+              "by": "Marcel"
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "progress",
+            "text": "Found the race in the session mock.",
+            "next": [
+              "Write the fix",
+              "Open a pull request"
+            ]
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "artifact",
+            "artifact": {
+              "kind": "pr",
+              "title": "Fix the flaky login test",
+              "url": "https://github.com/shbunder/garden-planner/pull/14"
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "update",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "cards",
+            "doc_id": "tsk_login",
+            "if_version": 1,
+            "data": {
+              "status": "Review",
+              "pr_url": "https://github.com/shbunder/garden-planner/pull/14",
+              "ci": "passing",
+              "waiting": true,
+              "updated_at": "2026-10-15T10:40:00Z"
+            }
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "log",
+            "doc_id": "20261015T1040-tsk_login",
+            "data": {
+              "at": "2026-10-15T10:40:00Z",
+              "card": "tsk_login",
+              "kind": "status",
+              "text": "Review: PR #14",
+              "by": "Marcel"
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "done",
+            "summary": "Fixed: the login test no longer fails. PR #14 is ready."
+          }
+        }
+      ],
+      "moves_card": true
+    },
+    "coding-quest-tracker-unreachable": {
+      "skill": "worker-protocol",
+      "task_id": "tsk_readme",
+      "moves_card": false,
+      "skill_says": [
+        "**The tracker is a convenience, never a reason to fail.**",
+        "\"Could not update the tracker: <why>.\""
+      ],
+      "calls": [
+        {
+          "tool": "report",
+          "input": {
+            "kind": "started",
+            "text": "Tidying the README."
+          }
+        },
+        {
+          "tool": "ArtifactData",
+          "input": {
+            "action": "set",
+            "url": "https://claude.ai/artifact/Tr4ckerGardenPlanner01",
+            "collection": "cards",
+            "doc_id": "tsk_readme",
+            "data": {
+              "title": "Tidy the README",
+              "quest": "Tidy the README",
+              "status": "In Progress",
+              "updated_at": "2026-10-15T11:00:00Z",
+              "by": "Marcel"
+            }
+          },
+          "error": "The artifact could not be reached."
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "note",
+            "text": "Could not update the tracker: the artifact could not be reached."
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "artifact",
+            "artifact": {
+              "kind": "pr",
+              "title": "Tidy the README",
+              "url": "https://github.com/shbunder/garden-planner/pull/15"
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "input": {
+            "kind": "done",
+            "summary": "The README is tidy. PR #15 is ready."
+          }
+        }
       ]
     }
   }

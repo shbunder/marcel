@@ -115,3 +115,12 @@ def test_a_quest_in_a_project_with_a_tracker_is_told_where_its_card_is(hub: Chan
     task_id, _sid = hub.task(title='Fix flaky login test', project_id=project_id)
     briefing = hub.app.state.projects.briefing(hub.registry.get(task_id))
     assert f'Tracker: {TRACKER} (your card: cards/{task_id})' in briefing
+
+
+def test_an_inbox_with_a_tracker_still_names_it(hub: ChannelHub) -> None:
+    """An inbox with no notes or instructions gives an empty briefing, except for its tracker."""
+    _kickoff, sid = hub.task(title='Kickoff garden-planner')  # unfiled: the inbox
+    report_trackers(hub, sid, TRACKER)
+    task_id, _sid = hub.task(title='Tidy the README')
+    briefing = hub.app.state.projects.briefing(hub.registry.get(task_id))
+    assert f'Tracker: {TRACKER} (your card: cards/{task_id})' in briefing

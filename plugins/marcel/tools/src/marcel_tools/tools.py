@@ -217,6 +217,8 @@ def projects_list(hub: Hub, args: Args) -> str:
             line += f' — {p["goal"]}'
         if p.get('repo'):
             line += f' (repo {p["repo"]})'
+        if p.get('tracker_url'):  # B-46: the digest moves merged PRs' cards to Done there
+            line += f' (tracker {p["tracker_url"]})'
         line += (
             f' [working {c["working"]}, needs you {c["needs_you"]}, done this week {c["done_7d"]}]'
         )

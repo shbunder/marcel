@@ -78,7 +78,10 @@ suggest) · **Usage** (below).
 **Trackers (B-46).** In the evening digest turn, for each project with a `tracker_url`
 (`projects_list`): every card in `Review` whose PR the facts list as merged goes to `Done` with
 `ArtifactData` (`update` with `if_version`, plus one `log` row `{at, card, kind: "status", text:
-"Done: PR #<n> merged", by: "Marcel"}`). Nothing else on a tracker is yours to change.
+"Done: PR #<n> merged", by: "Marcel"}`). Nothing else on a tracker is yours to change. The facts
+hold only today's merged PRs (the first 10), so a card whose PR merged on a day without an evening
+digest stays in Review; when you see one, check its PR with `gh pr view <url> --json state` if you
+can, else leave it.
 
 ## Usage report (part of the evening digest)
 

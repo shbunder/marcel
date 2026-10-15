@@ -100,6 +100,9 @@ there (B-46). Keep your own card current with `ArtifactData` on that link, the d
   "In Progress" | "Review: PR #<n>", by: "Marcel"}`.
 - Pin every `update` with `if_version` from your last read. Never touch another quest's card, and
   never set `Done`: the evening digest does that once the PR is merged.
+- **The tracker is a convenience, never a reason to fail.** If you cannot reach it (no `ArtifactData`
+  tool, an error, a version conflict twice), carry on with the quest and send one `report(note)`:
+  "Could not update the tracker: <why>." A cloud quest has no tracker tools: skip it.
 
 ## How to write for the owner
 

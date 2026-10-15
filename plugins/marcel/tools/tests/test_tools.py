@@ -494,3 +494,20 @@ def test_message_id_from_another_conversation_is_refused(world: World) -> None:
                                        'message_id': 'msg_elsewhere'})  # fmt: skip
     assert 'There is no message msg_elsewhere in this conversation' in text
     assert tasks(world) == []
+
+
+def test_projects_list_names_a_projects_tracker(world: World) -> None:
+    """The evening digest finds each tracker here to move merged PRs' cards to Done (B-46)."""
+    from marcel_hub.models import Project
+    from sqlmodel import Session, select
+
+    world.ok('projects_create', {'name': 'Garden planner', 'repo': 'shbunder/garden-planner'})
+    with Session(world.app.state.engine) as s:
+        garden = s.exec(select(Project).where(Project.slug == 'garden-planner')).one()
+        garden.tracker_url = 'https://claude.ai/artifact/Tr4ckerGardenPlanner01'
+        s.add(garden)
+        s.commit()
+    listed = world.ok('projects_list')
+    tracker = '(tracker https://claude.ai/artifact/Tr4ckerGardenPlanner01) ['
+    assert f'(repo shbunder/garden-planner) {tracker}' in listed
+    assert 'tracker' not in [line for line in listed.splitlines() if 'inbox' in line][0]

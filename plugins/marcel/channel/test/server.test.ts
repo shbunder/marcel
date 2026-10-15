@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INSTRUCTIONS } from '../src/server.js';
 import { CONFIG, Harness, SECRET, SESSION_ID } from './harness.js';
@@ -573,6 +575,38 @@ describe('report', () => {
     expect(done?.artifacts).toEqual([version, board]);
     const emoji = { ...version, summary: '🦒'.repeat(200) };
     expect(text(await h.callTool('report', { kind: 'artifact', artifact: emoji }))).toBe('Sent.');
+  });
+
+  it("keeps a tracker link's role, and refuses a role anywhere else (S-20.2)", async () => {
+    const h = await connected();
+    ack(h);
+    const tracker = { kind: 'link', title: 'Garden planner tracker', url: 'https://claude.ai/artifact/Tr4cker01', role: 'tracker' };
+    expect(text(await h.callTool('report', { kind: 'artifact', artifact: tracker }))).toBe('Sent.');
+    expect(h.hub.of('report')[0]?.artifact).toEqual(tracker);
+    const bad: [Record<string, unknown>, RegExp][] = [
+      [{ ...tracker, role: 'board' }, /can only be "tracker"/],
+      [{ ...tracker, url: 'http://claude.ai/artifact/x' }, /https/],
+      [{ kind: 'pr', title: 'PR', url: 'https://github.com/a/b/pull/1', role: 'tracker' }, /"link" artifact/],
+    ];
+    for (const [artifact, pattern] of bad) {
+      const res = await h.callTool('report', { kind: 'artifact', artifact });
+      expect(res.result?.isError, JSON.stringify(artifact)).toBe(true);
+      expect(text(res)).toMatch(pattern);
+    }
+    expect(h.hub.of('report')).toHaveLength(1);
+  });
+
+  it("passes every recorded worker report through unchanged (tools/tests/worker_replays.json)", async () => {
+    const replays = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../../tools/tests/worker_replays.json', import.meta.url)), 'utf8'),
+    ) as { replays: Record<string, { calls: { tool: string; input: Record<string, unknown> }[] }> };
+    const reports = Object.values(replays.replays).flatMap((r) => r.calls.filter((c) => c.tool === 'report').map((c) => c.input));
+    expect(reports.some((r) => (r.artifact as { role?: string } | undefined)?.role === 'tracker')).toBe(true);
+    const h = await connected();
+    ack(h);
+    for (const input of reports) expect(text(await h.callTool('report', input)), JSON.stringify(input)).toBe('Sent.');
+    const sent = h.hub.of('report').map(({ type: _t, call_id: _c, ...rest }) => rest);
+    expect(sent).toEqual(reports);
   });
 
   it('refuses a bad artifact_id or summary in plain words, and sends nothing', async () => {

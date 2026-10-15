@@ -11,6 +11,8 @@ export interface Artifact {
   artifact_id?: string;
   /** What changed in this version, in one line (at most 200 characters). */
   summary?: string;
+  /** `tracker`: this `link` is the project's tracker (B-46); only on a `link` with an `https://` url. */
+  role?: 'tracker';
 }
 
 export interface Hello {

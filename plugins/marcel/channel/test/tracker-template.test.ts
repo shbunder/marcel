@@ -25,10 +25,8 @@ class Element {
   onclick: (() => void) | null = null;
 }
 
-function page(collections: Record<string, Record<string, Record<string, unknown>>>) {
+async function page(collections: Record<string, Record<string, Record<string, unknown>>>) {
   const elements = new Map<string, Element>();
-  const errors: unknown[] = [];
-  const listeners: Record<string, Listener> = {};
   const document = {
     title: '',
     getElementById: (id: string) => {
@@ -44,25 +42,16 @@ function page(collections: Record<string, Record<string, Record<string, unknown>
     const query = {
       orderBy: () => query,
       limit: () => query,
-      onSnapshot: (on: Listener, _onError?: () => void) => {
-        listeners[name] = on;
-        on(snapshot(name));
-      },
+      onSnapshot: (on: Listener) => on(snapshot(name)),
     };
     return query;
   };
   const window = { claude: { use: async (cap: string) => (cap === 'db' ? { collection } : null) } };
-  const run = runInNewContext(SCRIPT.replace('(async function', 'globalThis.done = (async function'), {
-    window,
-    document,
-    Date,
-  });
-  void run;
-  return { elements, errors, listeners, document, snapshot };
-}
-
-async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  const context: { done?: Promise<void> } & Record<string, unknown> = { window, document, Date };
+  // The page's script is one async function: wait for it, so a script error fails the test.
+  runInNewContext(SCRIPT.replace('(async function', 'globalThis.done = (async function'), context);
+  await context.done;
+  return { elements, document };
 }
 
 const NOW = new Date().toISOString();
@@ -81,8 +70,7 @@ const TRACKER = {
 
 describe('the tracker page', () => {
   it('shows each card in its column and what waits on you, with no script error', async () => {
-    const p = page(TRACKER);
-    await settle();
+    const p = await page(TRACKER);
     const board = p.elements.get('board')?.innerHTML ?? '';
     const columns = board.split('<div class="col">').slice(1);
     expect(columns).toHaveLength(4);
@@ -99,18 +87,18 @@ describe('the tracker page', () => {
   });
 
   it('says so when it has no cards yet, and when its data is not there', async () => {
-    const empty = page({ meta: {}, cards: {}, log: {} });
-    await settle();
+    const empty = await page({ meta: {}, cards: {}, log: {} });
     expect(empty.elements.get('waiting')?.innerHTML).toContain('Nothing waits on you.');
     expect(empty.elements.get('sub')?.textContent).toContain('No cards yet');
 
     const elements = new Map<string, Element>();
-    runInNewContext(SCRIPT, {
+    const context: { done?: Promise<void> } & Record<string, unknown> = {
       window: { claude: { use: async () => null } },
       document: { getElementById: (id: string) => elements.get(id) ?? elements.set(id, new Element()).get(id), addEventListener: () => {} },
       Date,
-    });
-    await settle();
+    };
+    runInNewContext(SCRIPT.replace('(async function', 'globalThis.done = (async function'), context);
+    await context.done;
     expect(elements.get('sub')?.textContent).toContain("isn't available in this view");
   });
 
