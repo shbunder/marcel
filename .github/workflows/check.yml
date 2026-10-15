@@ -58,10 +58,25 @@ jobs:
           cache-dependency-path: plugins/marcel/channel/package-lock.json
       - run: make channel
 
+  relay:
+    name: relay
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: make relay
+
   # The one status branch protection requires: green only when every lane above is green.
   check:
     if: always()
-    needs: [python, channel]
+    needs: [python, channel, relay]
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.python.result }}" = success && test "${{ needs.channel.result }}" = success
+      - run: >-
+          test "${{ needs.python.result }}" = success && test "${{ needs.channel.result }}" = success
+          && test "${{ needs.relay.result }}" = success

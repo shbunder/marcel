@@ -1,0 +1,19 @@
+// The push relay (contracts/push-relay.yaml). The owner deploys it once: relay/README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "marcel-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  // Off: Cloudflare's request logs would keep request metadata, and the relay has nothing to keep.
+  "observability": { "enabled": false },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "marcel-relay",
+      // `wrangler d1 create marcel-relay` prints the real id; the owner pastes it here before deploying.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+  // Secrets, set with `wrangler secret put`: APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC.
+}

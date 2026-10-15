@@ -1,0 +1,24 @@
+{
+  "name": "marcel-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marcel push relay: a Cloudflare Worker that holds the app's APNs key and passes sealed notifications on to phones (contracts/push-relay.yaml).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json --noEmit && vitest run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler d1 migrations apply marcel-relay --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260815.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.124.0"
+  }
+}

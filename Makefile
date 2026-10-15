@@ -3,12 +3,13 @@ PY_LANES := brain contracts hub mock-hub runner plugins/marcel/tools shared/avat
 # `make mock-hub` runs the mock hub; its gate is mock-hub-check, so it is built apart from the rest.
 GATED    := $(filter-out mock-hub,$(PY_LANES))
 CHANNEL  := plugins/marcel/channel
+RELAY    := relay
 
-.PHONY: check ci-lanes test ios-check board lanes start scripts $(PY_LANES) channel mock-hub-check fake-claude app-icon
+.PHONY: check ci-lanes test ios-check board lanes start scripts $(PY_LANES) channel relay mock-hub-check fake-claude app-icon
 
-check: scripts $(GATED) mock-hub-check channel app-icon
+check: scripts $(GATED) mock-hub-check channel relay app-icon
 
-# The Python-side targets of `check`, one per line. CI makes one job per line (plus `channel`).
+# The Python-side targets of `check`, one per line. CI makes one job per line (plus `channel` and `relay`).
 ci-lanes:
 	@printf '%s\n' scripts $(GATED) mock-hub-check app-icon
 
@@ -41,9 +42,14 @@ fake-claude:
 channel:
 	cd $(CHANNEL) && npm ci --silent && npm run check
 
+# The push relay (S-22.14): a Cloudflare Worker, tested inside the Workers runtime; never deployed from here.
+relay:
+	cd $(RELAY) && npm ci --silent && npm run check
+
 test:
 	@for lane in $(PY_LANES); do $(MAKE) -C $$lane test || exit 1; done
 	cd $(CHANNEL) && npm ci --silent && npm test
+	cd $(RELAY) && npm ci --silent && npm test
 
 # iOS builds need Xcode: run this on the Mac only.
 ios-check:
