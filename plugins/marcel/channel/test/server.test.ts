@@ -590,6 +590,9 @@ describe('report', () => {
       [{ ...tracker, url: 'http://claude.ai/artifact/x' }, /a tracker is a claude\.ai artifact link/],
       [{ ...tracker, url: 'https://github.com/a/b/issues' }, /a tracker is a claude\.ai artifact link/],
       [{ ...tracker, url: 'https://claude.ai.evil.example/artifact/x' }, /a tracker is a claude\.ai artifact link/],
+      ...['https://claude.ai/artifact/abc\n', 'https://claude.ai/artifact/abc?x=1', 'https://CLAUDE.ai/artifact/x', 'https://claude.ai/artifact/\u0661'].map(
+        (url): [Record<string, unknown>, RegExp] => [{ ...tracker, url }, /a tracker is a claude\.ai artifact link/],
+      ),
       [{ kind: 'pr', title: 'PR', url: 'https://github.com/a/b/pull/1', role: 'tracker' }, /a tracker is a claude\.ai artifact link/],
     ];
     for (const [artifact, pattern] of bad) {

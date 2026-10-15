@@ -93,6 +93,11 @@ def test_an_ordinary_link_sets_no_tracker(hub: ChannelHub) -> None:
           'role': 'tracker'}, 'a tracker is a claude.ai artifact link'),
         ({'kind': 'pr', 'title': 'T', 'url': 'https://claude.ai/artifact/x', 'role': 'tracker'},
          'a tracker is a claude.ai artifact link'),
+        *[({'kind': 'link', 'title': 'T', 'url': url, 'role': 'tracker'},
+           'a tracker is a claude.ai artifact link') for url in (
+            'https://claude.ai/artifact/abc\n', 'https://claude.ai/artifact/abc?x=1',
+            'https://CLAUDE.ai/artifact/x', 'https://claude.ai/artifact/\u0661',
+        )],
         ({'kind': 'link', 'title': 'T', 'url': 'https://claude.ai/x', 'role': 'board'}, 'role'),
     ],
 )  # fmt: skip
@@ -168,9 +173,15 @@ def test_only_the_kickoff_quest_sets_or_replaces_the_tracker(hub: ChannelHub) ->
     assert tracker_of(hub, project_id) == LATER
 
 
-def test_a_quest_that_is_no_kickoff_never_sets_a_first_tracker(hub: ChannelHub) -> None:
+def test_a_quest_that_is_no_kickoff_never_sets_a_first_tracker(
+    hub: ChannelHub, caplog: pytest.LogCaptureFixture
+) -> None:
     project_id = garden(hub)
-    _task_id, sid = hub.task(title='Fix flaky login test', project_id=project_id)
+    task_id, sid = hub.task(title='Fix flaky login test', project_id=project_id)
     [ack] = report_trackers(hub, sid, TRACKER)
     assert ack['error']['code'] == 'not_kickoff'
     assert tracker_of(hub, project_id) is None
+    refused = [r.getMessage() for r in caplog.records if r.name == 'marcel_hub.projects.store']
+    assert refused == [
+        f"Task {task_id} reported a tracker but is not its project's kickoff quest; refused."
+    ]
