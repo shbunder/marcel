@@ -40,7 +40,8 @@ Start with [plan/README.md](plan/README.md). What it must do is
 | contracts | `contracts/` | contract tests (F02) | cloud, **lead only** |
 | brain | `brain/` | template tests | NUC |
 | iOS + avatar | `ios/`, `shared/avatar/` | `make ios-check` | **Mac only** |
-| deploy | `deploy/` | drills on the NUC | NUC |
+| deploy | `deploy/` | drills on the NUC | NUC; Mac for macOS install (F22) |
+| relay | `relay/` | `make -C relay check` (push relay, F22) | cloud |
 
 ## Commands
 

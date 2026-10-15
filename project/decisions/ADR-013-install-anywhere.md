@@ -1,9 +1,9 @@
 ---
 id: ADR-013
 title: Marcel installs on anyone's own computer — one person, many buddies, no Docker, no domain
-status: Proposed
+status: Accepted
 date: 2026-10-15
-decided_by: lead (proposed); the owner decides
+decided_by: owner, 2026-10-15 (in chat with the lead)
 evidence: plan/05-install-anywhere.md; Claude Code docs read 2026-10-15 (legal-and-compliance, managed-settings, settings-reference, channels, setup, agent-view, cross-session-messaging, authentication); Tailscale Funnel and userspace-networking docs; Apple TestFlight and APNs key docs; owner's direction 2026-10-15 (chat, three messages)
 ---
 
@@ -84,4 +84,9 @@ buddy" lock is an open question for the owner, not built.
   `CLAUDE.md` when this ADR is accepted.
 - B-27 and B-37…B-40 in the functional spec change; B-47…B-52 are added.
 - Docs ship with each story: `docs/install.md` for colleagues, `docs/operating.md` rewritten for the native install.
-- Open for the owner: see `plan/05-install-anywhere.md` and the F22 feature page, "Open decisions".
+- Owner's answers (2026-10-15), all as recommended:
+  1. One admin password prompt during install is accepted.
+  2. A free Tailscale account per install (one per household; family members using the owner's Marcel need none).
+  3. No per-phone buddy lock for now; any paired phone may open any buddy.
+  4. Self-changes are off on colleagues' installs; they update with `marcel update`.
+  5. Extra computers (wave 7) wait until waves 5–6 work on a colleague's Mac.
