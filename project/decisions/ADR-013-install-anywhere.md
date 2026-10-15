@@ -100,6 +100,9 @@ NUC moves there from `~/marcel` in `marcel migrate` (S-22.24).
   updates with `marcel update` through the same flag and rollback, and never pushes a revert.
 - Contracts change three times, lead only: S-02.13 (one person, buddies on phones, relay push), S-02.16 (buddy
   messages, after SP13) and S-02.14 (computers and the link).
+- On a laptop, Funnel needs a watchdog (SP12): after sleep and a network change the user-space `tailscaled` kept its
+  Funnel config but the address stayed dead until it was restarted (72 s to come back). S-22.8 adds it; S-22.17 says
+  "waking up" through the push relay meanwhile.
 - `marcel-bot.com` stops being a constant: the hub's `public_url` setting names the address everywhere.
 - New lane `relay/` (the push relay, TypeScript on Cloudflare Workers); the lead adds it to the lanes table in
   `CLAUDE.md` when this ADR is accepted.
