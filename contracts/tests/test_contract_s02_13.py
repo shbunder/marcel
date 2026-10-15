@@ -79,7 +79,10 @@ def b64(raw: bytes) -> str:
 def test_the_versions_were_bumped() -> None:
     assert load_yaml('app-api.yaml')['info']['version'] == '0.8.0'
     assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.5'
-    assert load_yaml('push-relay.yaml')['info']['version'] == '0.1.0'
+    assert load_yaml('push-relay.yaml')['info']['version'] in (
+        '0.1.0',
+        '0.1.1',
+    )  # 0.1.1: register 429
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'
 
 
@@ -353,7 +356,7 @@ def test_the_relay_api_has_three_routes() -> None:
         'sendPush': ('post', '/v1/push'),
         'deleteHandle': ('delete', '/v1/handles/{handle}'),
     }
-    assert set(ops['registerPhone'][2]['responses']) == {'201', '400'}
+    assert set(ops['registerPhone'][2]['responses']) == {'201', '400', '429'}
     assert ops['registerPhone'][2]['security'] == []
     assert set(ops['sendPush'][2]['responses']) == {'202', '400', '401', '410', '413', '429', '502'}
     assert ops['sendPush'][2]['security'] == [{'sendSecret': []}]
@@ -525,3 +528,14 @@ def test_every_claude_version_refusal_needs_a_pin() -> None:
     ]
     assert len(texts) == 4
     assert all('only when a pin is set' in text for text in texts)
+
+
+def test_registration_is_rate_limited() -> None:
+    """push-relay 0.1.1: a public relay caps registrations; the 429 says so and stores nothing."""
+    reg = operations('push-relay.yaml')['registerPhone'][2]['responses']['429']
+    assert (
+        'too_many_registrations' in reg['description']
+        and 'Nothing was stored' in reg['description']
+    )
+    assert 'Retry-After' in reg['headers']
+    assert 'too_many_registrations' in load_yaml('push-relay.yaml')['info']['description']

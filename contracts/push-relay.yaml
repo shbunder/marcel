@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel push relay
-  version: 0.1.0
+  version: 0.1.1
   description: |
     The one service the owner runs for every Marcel install (ADR-013 question 2): a Cloudflare
     Worker that holds the app's APNs key and passes sealed notifications on to phones. New in
@@ -20,7 +20,7 @@ info:
 
     **Errors** have app-api.yaml's `Error` shape. The codes: `bad_request` (400), `unauthorized`
     (401), `not_found` (404), `handle_gone` (410), `too_large` (413), `too_many_pushes` (429),
-    `apns_unavailable` (502).
+    `too_many_registrations` (429), `apns_unavailable` (502).
 servers:
   - url: https://marcel-relay.example.workers.dev
     description: The owner's relay; its real address is set in the app's build (`MARCEL_RELAY_URL`)
@@ -136,6 +136,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Registered' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429':
+          description: |
+            Too many registrations from this address in the last hour, or for this relay today
+            (code `too_many_registrations`). Try again later. Nothing was stored. The relay keeps only
+            a hash of the address, never the address itself.
+          headers:
+            Retry-After:
+              description: Seconds until a registration may succeed again.
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
 
   /v1/push:
     post:
