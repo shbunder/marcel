@@ -84,6 +84,7 @@ Size guide:
 4. Run the lane gate:
    - hub, runner, plugin-py: `make -C <lane> check` (ruff, pyright, pytest, coverage ≥ 90 %);
    - plugin-ts: `npm run check`;
+   - relay (the push relay, F22): `make relay`;
    - iOS: `make ios-check` (= `make -C ios check`; see `ios/README.md` for how it runs the tests on the simulator).
 
    GitHub runs every lane but iOS on each PR and each push to `main` (`.github/workflows/check.yml`, about
