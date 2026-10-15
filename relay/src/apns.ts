@@ -59,6 +59,20 @@ export function payload(sealed: SealedPush, urgent: boolean): string {
 
 export type Sent = 'ok' | 'gone' | 'failed';
 
+// APNs answers 400 with these reasons when the token can never work for this app: a token from the
+// other environment (sandbox vs production) or for another bundle id. Like a 410, the phone must
+// register again.
+const GONE_REASONS = new Set(['BadDeviceToken', 'DeviceTokenNotForTopic']);
+
+async function reason(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    return typeof body === 'object' && body !== null && 'reason' in body ? String(body.reason) : '';
+  } catch {
+    return '';
+  }
+}
+
 export async function send(
   fetcher: typeof fetch,
   key: ApnsKey,
@@ -85,5 +99,7 @@ export async function send(
     return 'failed';
   }
   if (response.status === 200) return 'ok';
-  return response.status === 410 ? 'gone' : 'failed';
+  if (response.status === 410) return 'gone';
+  if (response.status === 400 && GONE_REASONS.has(await reason(response))) return 'gone';
+  return 'failed';
 }

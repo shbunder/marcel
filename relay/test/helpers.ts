@@ -23,13 +23,16 @@ export interface Call {
 export class FakeApns {
   calls: Call[] = [];
   status = 200;
+  reason = 'Unregistered';
+  rawBody: string | null = null;
   throws = false;
 
   fetch: typeof fetch = async (input, init) => {
     if (this.throws) throw new Error('network down');
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     this.calls.push({ url: String(input), headers, body: String(init?.body) });
-    return new Response(this.status === 200 ? null : '{"reason":"Unregistered"}', { status: this.status });
+    const body = this.status === 200 ? null : (this.rawBody ?? JSON.stringify({ reason: this.reason }));
+    return new Response(body, { status: this.status });
   };
 }
 

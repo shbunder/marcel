@@ -26,6 +26,10 @@ for the relay. The relay prints one fixed line of its own, "APNs did not take a 
 it only while you run `npx wrangler tail`. `test/never-logs.test.ts` fails if a `console.log` or a console
 line with anything but fixed words is added.
 
+When APNs says a phone's token is gone (410), or can never work for this app (400 `BadDeviceToken`, a token from
+the other environment, or `DeviceTokenNotForTopic`), the relay forgets the handle and answers 410 `handle_gone`, so
+the hub asks the phone to register again. Any other APNs failure answers 502 and keeps the handle.
+
 Limits: 500 pushes a day per handle (429 after that), 3 KB per request (413). The count moves in the same statement
 that checks the secret, so two pushes at once never both take the last place. If the relay is down, pushes stop and
 the app still works.

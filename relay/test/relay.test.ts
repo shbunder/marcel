@@ -222,16 +222,39 @@ describe('push', () => {
     expect((await r.call('POST', '/v1/push', body, send_secret)).status).toBe(401);
   });
 
-  it.each([[500], [403], ['network']])('answers 502 when APNs does not take it (%s)', async (failure) => {
-    const r = await relay();
-    const { handle, send_secret } = await registered(r);
-    if (failure === 'network') r.apns.throws = true;
-    else r.apns.status = failure as number;
-    const res = await r.call('POST', '/v1/push', { handle, sealed: SEALED, urgent: true }, send_secret);
-    expect(res.status).toBe(502);
-    expect(await res.json()).toMatchObject({ code: 'apns_unavailable' });
-    expect(await r.env.DB.prepare('SELECT 1 FROM handles WHERE handle = ?1').bind(handle).first()).not.toBeNull();
-  });
+  it.each(['BadDeviceToken', 'DeviceTokenNotForTopic'])(
+    'forgets the handle when APNs says the token can never work (400 %s)',
+    async (reason) => {
+      const r = await relay();
+      const { handle, send_secret } = await registered(r);
+      r.apns.status = 400;
+      r.apns.reason = reason;
+      const body = { handle, sealed: SEALED, urgent: true };
+      const res = await r.call('POST', '/v1/push', body, send_secret);
+      expect(res.status).toBe(410);
+      expect(await res.json()).toMatchObject({ code: 'handle_gone' });
+      expect(await r.env.DB.prepare('SELECT 1 FROM handles WHERE handle = ?1').bind(handle).first()).toBeNull();
+    },
+  );
+
+  it.each([[500], [403], ['network'], ['400 BadPriority'], ['400 not JSON']])(
+    'answers 502 when APNs does not take it (%s)',
+    async (failure) => {
+      const r = await relay();
+      const { handle, send_secret } = await registered(r);
+      if (failure === 'network') r.apns.throws = true;
+      else if (typeof failure === 'number') r.apns.status = failure;
+      else {
+        r.apns.status = 400;
+        r.apns.reason = failure === '400 BadPriority' ? 'BadPriority' : '';
+        if (failure === '400 not JSON') r.apns.rawBody = 'oops';
+      }
+      const res = await r.call('POST', '/v1/push', { handle, sealed: SEALED, urgent: true }, send_secret);
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ code: 'apns_unavailable' });
+      expect(await r.env.DB.prepare('SELECT 1 FROM handles WHERE handle = ?1').bind(handle).first()).not.toBeNull();
+    },
+  );
 });
 
 describe('delete a handle', () => {
