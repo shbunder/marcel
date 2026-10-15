@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {"matcher": "SendMessage", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/log.sh post-SendMessage"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/log.sh prompt"}]}
+    ]
+  }
+}

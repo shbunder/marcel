@@ -1,0 +1,4 @@
+{
+  "crossSessionInbound": "accept",
+  "permissions": {"allow": ["SendMessage", "ListAgents"], "deny": ["Agent", "Task", "Workflow"]}
+}

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Workflow"
+    ],
+    "deny": [
+      "Bash(docker restart:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(systemctl --user restart:*)",
+      "SendMessage",
+      "ListAgents"
+    ]
+  },
+  "crossSessionInbound": "refuse",
+  "subagentPromptCacheTtl": "1h"
+}

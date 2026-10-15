@@ -1,0 +1,9 @@
+{
+  "crossSessionInbound": "refuse",
+  "permissions": {
+    "deny": [
+      "SendMessage",
+      "ListAgents"
+    ]
+  }
+}
