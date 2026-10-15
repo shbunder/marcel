@@ -529,3 +529,68 @@ def test_end_to_end_a_wrong_token_is_explained(
     token_file(tmp_path)  # not the hub's
     code, out = run([], env_for(tmp_path), hub_send(world), capsys)
     assert code == 1 and 'did not accept your adopt token' in out
+
+
+# The adopt code: the token bound to the hub that issued it (S-22.2) ---------------------------
+
+
+def test_an_adopt_code_sends_its_token_to_its_own_hub(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token_file(tmp_path, token=f'{TOKEN}@https://mac.tail1234.ts.net', hub=False)
+    send = Recorder()
+    code, _ = run([], env_for(tmp_path), send, capsys)
+    assert code == 0
+    assert send.calls[0][:2] == ('https://mac.tail1234.ts.net/api/session/adopt', TOKEN)
+
+
+def test_a_cloud_session_adopts_with_the_code_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cloud session has no ~/.marcel: the code in its secret carries the address."""
+    send = Recorder()
+    env = env_for(tmp_path, MARCEL_ADOPT_TOKEN=f'{TOKEN}@https://mac.tail1234.ts.net/api')
+    code, _ = run([], env, send, capsys)
+    assert code == 0
+    assert send.calls[0][:2] == ('https://mac.tail1234.ts.net/api/session/adopt', TOKEN)
+
+
+def test_the_codes_address_beats_the_hub_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token_file(tmp_path, token=f'{TOKEN}@https://mac.tail1234.ts.net')  # hub file: HUB
+    send = Recorder()
+    run([], env_for(tmp_path), send, capsys)
+    assert send.calls[0][0] == 'https://mac.tail1234.ts.net/api/session/adopt'
+
+
+def test_a_code_in_the_environment_never_redirects_the_owners_token(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cloned repository can set MARCEL_ADOPT_TOKEN, but the token file always wins."""
+    token_file(tmp_path)
+    send = Recorder()
+    env = env_for(tmp_path, MARCEL_ADOPT_TOKEN='mra_' + 'bad0' * 16 + '@https://evil.test')
+    run([], env, send, capsys)
+    assert send.calls[0][:2] == (f'{HUB}/api/session/adopt', TOKEN)
+
+
+@pytest.mark.parametrize(
+    'hub',
+    [
+        'http://mac.example.org',
+        'https://me@evil.test',
+        'https://',
+        'mac.example.org',
+        'https://x.test/?a=1',
+        'https://x.test/#a',
+    ],
+)
+def test_a_code_with_an_address_that_cannot_be_trusted_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], hub: str
+) -> None:
+    send = Recorder()
+    env = env_for(tmp_path, MARCEL_ADOPT_TOKEN=f'{TOKEN}@{hub}')
+    code, out = run([], env, send, capsys)
+    assert code == 1 and 'must hold an https:// address' in out
+    assert send.calls == []

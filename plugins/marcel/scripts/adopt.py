@@ -14,13 +14,17 @@ database, never `$HOME`. The environment cannot change where the token goes or w
 read from: a cloned repository's `.claude/settings.json` can set environment variables for every
 command Claude runs, and must not be able to point the token at its own server.
 
-- `~/.marcel/adopt-token`: the token. Must belong to you and be readable by you only.
+- `~/.marcel/adopt-token`: the adopt code `marcel-hub adopt-token` printed, `mra_…@https://<hub>`:
+  the token and the address of the hub that issued it, bound together (S-22.2). A bare `mra_…`
+  token (from before S-22.2) still works with the address below. Must belong to you and be
+  readable by you only.
 - `~/.marcel/hub-url`: your Marcel's address, e.g. `https://mac.tail1234.ts.net`, written by the
-  install and by `marcel connect`. Same checks; must be https. There is no built-in address: each
-  install has its own (S-22.2).
-- `MARCEL_ADOPT_TOKEN` (environment): the token itself, only when there is no token file, for a
-  cloud session (set it as a secret of the cloud environment). It can only send a token to the
-  hub above, never elsewhere.
+  install and by `marcel connect`; used only for a bare token. Same checks; must be https. There
+  is no built-in address: each install has its own.
+- `MARCEL_ADOPT_TOKEN` (environment): the adopt code itself, only when there is no token file,
+  for a cloud session (set it as a secret of the cloud environment). The address comes only from
+  the code, never from a variable of its own: a repository that replaces the code replaces the
+  token too, so the owner's token can only ever go to the hub that issued it.
 
 Run by the command as
 `python3 adopt.py --session-id "${CLAUDE_SESSION_ID}" --title '<title>'`; without
@@ -57,7 +61,7 @@ GET_A_TOKEN = (
     'On the NUC, run `docker compose exec hub marcel-hub adopt-token` to make one, then save it '
     'from a terminal on this computer: '
     '`mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, '
-    'paste the token, press Enter and then Ctrl-D. Then run /marcel-adopt again.'
+    'paste the code, press Enter and then Ctrl-D. Then run /marcel-adopt again.'
 )
 NO_HUB = (
     'This computer does not know where your Marcel is yet. Run `marcel connect` first; it saves '
@@ -159,35 +163,50 @@ def read_private(path: Path, what: str) -> str | None:
         raise AdoptError(f'Could not read {path}: {exc.strerror}.') from None
 
 
-def read_token(env: Mapping[str, str], home: Path) -> str:
-    """The adopt token, from the owner-only file or (cloud) the environment. Never printed."""
+def split_code(code: str) -> tuple[str, str | None]:
+    """An adopt code `mra_…@https://<hub>` → (token, hub address); a bare token → (token, None)."""
+    token, at, hub = code.partition('@')
+    return (token.strip(), hub.strip() or None) if at else (code, None)
+
+
+def read_token(env: Mapping[str, str], home: Path) -> tuple[str, str | None]:
+    """The adopt token and the hub address bound to it, from the owner-only file or (cloud) the
+    environment. Never printed."""
     path = home / TOKEN_FILE
-    token = read_private(path, 'adopt token')
-    if token is None:
-        token = env.get('MARCEL_ADOPT_TOKEN', '').strip()
-        if token:
-            return token
+    code = read_private(path, 'adopt token')
+    if code is None:
+        code = env.get('MARCEL_ADOPT_TOKEN', '').strip()
+        if code:
+            return split_code(code)
         raise AdoptError(f'Marcel has no adopt token on this computer yet. {GET_A_TOKEN}')
-    if not token:
+    if not code:
         raise AdoptError(f'{path} is empty. {GET_A_TOKEN}')
-    return token
+    return split_code(code)
 
 
 # Talking to the hub ---------------------------------------------------------------------------
 
 
-def hub_url(home: Path) -> str:
-    """The adopt address on the hub in `~/.marcel/hub-url`."""
+def hub_url(home: Path, bound: str | None = None) -> str:
+    """The adopt address: on the hub bound to the adopt code, else the one in
+    `~/.marcel/hub-url`."""
     path = home / HUB_FILE
-    saved = read_private(path, 'hub address')
+    saved = bound or read_private(path, 'hub address')
     if not saved:
         raise AdoptError(NO_HUB)
     url = saved.rstrip('/').removesuffix('/api')
     parts = urlsplit(url)
-    if parts.scheme != 'https' or not parts.hostname or parts.query or parts.fragment:
+    if (
+        parts.scheme != 'https'
+        or not parts.hostname
+        or parts.username is not None
+        or parts.query
+        or parts.fragment
+    ):
+        where = 'Your adopt code' if bound else str(path)
         raise AdoptError(
-            f'{path} must hold an https:// address, such as https://mac.tail1234.ts.net. '
-            'Fix it or remove the file.'
+            f'{where} must hold an https:// address, such as https://mac.tail1234.ts.net. '
+            'Fix it, or make a new code with `marcel-hub adopt-token`.'
         )
     return url + ADOPT_PATH
 
@@ -305,8 +324,8 @@ def run(
             socket.gethostname() if machine is None else machine,
         )
         home = home or home_dir()
-        url = hub_url(home)
-        token = read_token(env, home)
+        token, bound = read_token(env, home)
+        url = hub_url(home, bound)
         status, answer = send(url, token, body, TIMEOUT)
         print(outcome(status, answer, body['title']))
     except AdoptError as exc:

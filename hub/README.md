@@ -252,12 +252,16 @@ and with an unknown one, and fails if the hub accepts it.
 Marcel did not start to Marcel (B-14, `contracts/session-api.yaml`). Code: `adopt.py`.
 
 ```bash
-marcel-hub adopt-token     # inside the hub container: a new adopt token, printed once
+marcel-hub adopt-token     # inside the hub container: a new adopt code, printed once
 ```
 
-Save the token on every computer you use Claude Code on, readable by you only:
+It prints an **adopt code**, `mra_…@<public_url>`: the token bound to this hub's address, like a
+pairing link (S-22.2). Without `public_url` it makes none and says why. `/marcel-adopt` sends the token
+only to the address in its code, so no repository setting can redirect it. Save the code on every
+computer you use Claude Code on, readable by you only:
 `mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, paste it, Enter, Ctrl-D. A cloud
-session has no such file: give it the token as the `MARCEL_ADOPT_TOKEN` secret of its environment.
+session has no such file: give it the code as the `MARCEL_ADOPT_TOKEN` secret of its environment. The
+hub's API still takes only the token as the bearer (`contracts/session-api.yaml` is unchanged).
 
 - **The token** is `mra_` plus 32 random bytes in hex. The hub keeps only its sha256, in
   `<data_dir>/adopt-token.sha256` (owner-only), and reads it on every call: a new token works at

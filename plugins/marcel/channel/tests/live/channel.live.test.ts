@@ -184,7 +184,8 @@ describe('the marcel channel with a real background session', () => {
     const adopt = await fetch(`${HUB}/api/session/adopt`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${readFileSync(join(homedir(), '.marcel', 'adopt-token'), 'utf8').trim()}`,
+        // The file holds the adopt code `mra_…@<hub>` (S-22.2): the bearer is the token before the `@`.
+        authorization: `Bearer ${readFileSync(join(homedir(), '.marcel', 'adopt-token'), 'utf8').trim().split('@')[0]}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({ session_id: sessionId, kind: 'local', title: `Channel live ${STAMP}`, cwd: CWD, machine: hostname() }),

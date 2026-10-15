@@ -7,13 +7,14 @@ an "adopted" milestone in the main chat, and Marcel follows it from then on. Run
 session you want to hand over.
 
 - **Setup, once per computer.** Make a token on the NUC with
-  `docker compose exec hub marcel-hub adopt-token`, then save it here, readable by you only:
-  `mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, paste, Enter, Ctrl-D. In a
-  cloud session, set it as the `MARCEL_ADOPT_TOKEN` secret of the environment instead.
+  `docker compose exec hub marcel-hub adopt-token`. It prints an adopt code, `mra_…@https://<your
+  Marcel>`: the token bound to the address of the hub that issued it. Save it here, readable by you
+  only: `mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)`, paste, Enter, Ctrl-D.
+  In a cloud session, set the code as the `MARCEL_ADOPT_TOKEN` secret of the environment instead.
 - **What happens.** Claude picks a title (yours, or a short line about the session) and runs
   `scripts/adopt.py`, which posts the session's id, folder and host name (or, in the cloud, its
   `session_…` id and link) to `<your Marcel's address>/api/session/adopt`, the address saved in
-  `~/.marcel/hub-url`
+  the adopt code (or, for a bare token from before, `~/.marcel/hub-url`)
   (`contracts/session-api.yaml`). The session id comes from `${CLAUDE_SESSION_ID}` in the command,
   else from `CLAUDE_CODE_SESSION_ID`; a cloud session is recognised by `CLAUDE_CODE_REMOTE` and its
   id read from `CLAUDE_CODE_REMOTE_SESSION_ID`.
@@ -35,9 +36,9 @@ entry, not `$HOME`, and uses each file only when it belongs to you and nobody el
 
 | Setting | Default | What for |
 |---|---|---|
-| `~/.marcel/adopt-token` | — | The token (required, owner-only) |
-| `~/.marcel/hub-url` | — | Your Marcel's address, e.g. `https://mac.tail1234.ts.net` (required, owner-only, https). The install and `marcel connect` write it; without it the command says "Run `marcel connect` first". A cloud session has no such file, so `/marcel-adopt` works only on a computer that ran `marcel connect` |
-| `MARCEL_ADOPT_TOKEN` (environment) | — | The token itself, only when there is no token file: for a cloud session. It can only go to the hub above |
+| `~/.marcel/adopt-token` | — | The adopt code `mra_…@https://<hub>` (required, owner-only). The token goes only to the hub in the code |
+| `~/.marcel/hub-url` | — | Only for a bare `mra_…` token from before S-22.2: your Marcel's address (owner-only, https). The install and `marcel connect` write it; with neither, the command says "Run `marcel connect` first" |
+| `MARCEL_ADOPT_TOKEN` (environment) | — | The adopt code itself, only when there is no token file: for a cloud session. The address comes only from the code, so a repository that sets this variable replaces the token too and can never redirect yours |
 
 The command's permission rule lets Claude run exactly
 `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/adopt.py --session-id …` without asking, nothing else.

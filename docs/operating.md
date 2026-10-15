@@ -318,8 +318,8 @@ The channel's live check runs against the **deployed** hub and runner (not a run
 cd plugins/marcel/channel && npx vitest run --config tests/live/vitest.config.ts
 ```
 
-It needs Docker access to `marcel-hub` (it pairs a device and removes it at the end), the owner's adopt token in
-`~/.marcel/adopt-token` (`marcel-hub adopt-token`, made once; the test never rotates it) and the hub secret. On the phone
+It needs Docker access to `marcel-hub` (it pairs a device and removes it at the end), the owner's adopt code in
+`~/.marcel/adopt-token` (`marcel-hub adopt-token`, made once; the test sends the token before its `@` and never rotates it) and the hub secret. On the phone
 it shows: an adopted quest and a short worker quest (archived at the end), one Write approval card it answers itself,
 and Marcel's brain replaced once (it stops the brain on purpose to check a message waits for the new one).
 

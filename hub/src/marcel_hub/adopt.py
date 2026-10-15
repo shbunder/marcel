@@ -403,6 +403,7 @@ def install(
 def token_cli(argv: list[str]) -> int:
     """Make a new adopt token and print it once, with where to put it."""
     from marcel_hub.app import SettingsError, load_settings
+    from marcel_hub.auth.tokens import NO_PUBLIC_URL
 
     if argv:
         print('Usage: marcel-hub adopt-token', file=sys.stderr)
@@ -411,12 +412,18 @@ def token_cli(argv: list[str]) -> int:
         settings = load_settings()
     except SettingsError as exc:
         raise SystemExit(f'No adopt token was made. {exc}') from exc
+    if not settings.public_url:
+        raise SystemExit(f'No adopt token was made. {NO_PUBLIC_URL}')
     token = new_adopt_token(settings.data_dir)
-    print('A new adopt token. It is shown only this once; the previous one no longer works.')
+    # The adopt code binds the token to this hub's address, like a pairing link (S-22.2):
+    # /marcel-adopt sends the token only there, so no repository setting can redirect it.
+    code = f'{token}@{settings.public_url}'
+    print('A new adopt code. It is shown only this once; the previous one no longer works.')
     print()
-    print(f'    {token}')
+    print(f'    {code}')
     print()
     print('On every computer where you use Claude Code, save it for /marcel-adopt:')
     print('    mkdir -p ~/.marcel && (umask 077 && cat > ~/.marcel/adopt-token)')
-    print('then paste the token, press Enter and then Ctrl-D.')
+    print('then paste the code, press Enter and then Ctrl-D.')
+    print('For a cloud session, set the code as the MARCEL_ADOPT_TOKEN secret of its environment.')
     return 0

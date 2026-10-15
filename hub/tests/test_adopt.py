@@ -390,13 +390,27 @@ def test_marcel_hub_adopt_token_prints_a_working_token_once(
 ) -> None:
     monkeypatch.setenv('MARCEL_CONFIG', str(tmp_path / 'none.toml'))
     monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
+    monkeypatch.setenv('MARCEL_PUBLIC_URL', 'https://mac.tail1234.ts.net')
     with pytest.raises(SystemExit) as done:
         main(['adopt-token'])
     assert done.value.code == 0
     out = capsys.readouterr().out
-    [token] = [w for w in out.split() if w.startswith('mra_')]
+    [code] = [w for w in out.split() if w.startswith('mra_')]
+    token, hub = code.split('@')  # S-22.2: the code carries the hub that issued it
+    assert hub == 'https://mac.tail1234.ts.net'
     TokenCheck(tmp_path / adopt.TOKEN_FILE).check(f'Bearer {token}', 'owner')
     assert '~/.marcel/adopt-token' in out and 'umask 077' in out
+
+
+def test_marcel_hub_adopt_token_needs_a_public_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('MARCEL_CONFIG', str(tmp_path / 'none.toml'))
+    monkeypatch.setenv('MARCEL_DATA_DIR', str(tmp_path))
+    monkeypatch.delenv('MARCEL_PUBLIC_URL', raising=False)
+    with pytest.raises(SystemExit, match='No public address yet'):
+        main(['adopt-token'])
+    assert not (tmp_path / adopt.TOKEN_FILE).exists()
 
 
 def test_marcel_hub_adopt_token_takes_no_arguments(
