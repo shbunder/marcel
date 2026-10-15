@@ -47,6 +47,7 @@ struct RootView: View {
                 if new == .unpaired {
                     UserDefaults.standard.removeObject(forKey: MainTabs.conversationKey)
                     UserDefaults.standard.removeObject(forKey: MainTabs.agentKey)
+                    CurrentBuddy.shared.forget()
                 }
             }
     }
@@ -176,9 +177,23 @@ struct MainTabs: View {
             tab = "chat"
             chat.attach(item)
         }
-        // Links (and pushes) that arrived before the tabs were up are looked up now; later ones at once.
+        // A push about another buddy opens the app on that buddy (B-49): the chat switches (every tab follows), and
+        // only then does its link open, so a switch never wipes the message it scrolls to.
+        .onChange(of: router.buddy, initial: true) { _, buddy in
+            guard let buddy else { return }
+            Task {
+                await chat.switchTo(buddy)
+                router.consumeBuddy()
+                if let destination = router.destination {
+                    show(destination)
+                    router.consume()
+                }
+            }
+        }
+        // Links (and pushes) that arrived before the tabs were up are looked up now; later ones at once. A push that
+        // also switches buddy waits for the switch above.
         .onChange(of: router.destination, initial: true) { _, destination in
-            guard let destination else { return }
+            guard let destination, router.buddy == nil else { return }
             show(destination)
             router.consume()
         }
@@ -219,7 +234,7 @@ struct MainTabs: View {
         switch over {
         case .settings:
             SettingsView(model: settingsModel(), status: { StatusModel(service: settings) },
-                         people: { PeopleModel(service: settings, looks: looks) }, links: settingsLinks, signedOut: signedOut)
+                         buddies: { BuddiesModel(service: settings, looks: looks) }, links: settingsLinks, signedOut: signedOut)
         case .notebook:
             NotebookView(model: NotebookModel(service: notebook, rollovers: rollovers, projectNames: { [connection] in
                 Dictionary((try? connection.cache.projects())?.map { ($0.slug, $0.name) } ?? [],

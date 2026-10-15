@@ -77,7 +77,8 @@ public struct LiveProjectService: ProjectService {
 
     public func projects() async throws -> [Project] {
         var projects: [Project] = []
-        for agent in try await me().agents {
+        // The buddy this phone shows (B-49).
+        for agent in [await CurrentBuddy.chosen(from: try await me().agents)].compactMap({ $0 }) {
             switch try await call({ try await client.listProjects(query: .init(agentId: agent.id)) }) {
             case .ok(let ok): projects += try ok.body.json
             case .unauthorized: throw MapError.unauthorized
@@ -122,7 +123,9 @@ public struct LiveProjectService: ProjectService {
     }
 
     public func mainConversationId() async throws -> String {
-        guard let agent = try await me().agents.first else { throw MapError.unexpected("no agent") }
+        guard let agent = await CurrentBuddy.chosen(from: try await me().agents) else {
+            throw MapError.unexpected("no agent")
+        }
         return agent.mainConversationId
     }
 

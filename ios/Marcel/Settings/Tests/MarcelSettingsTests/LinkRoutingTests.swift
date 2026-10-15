@@ -226,6 +226,25 @@ final class LinkRoutingTests: XCTestCase {
         }
     }
 
+    /// S-22.12 (B-49): a notice about another buddy opens the app on that buddy; one about Marcel as a whole does not.
+    func testAPushAboutABuddyAsksTheAppToShowIt() async {
+        let payload = PushPayload(title: "Pip needs you", body: "Allow npm install?", category: "approval",
+                                  userInfo: ["deep_link": "marcel://approval/apr_engie", "approval_id": "apr_engie",
+                                             "task_id": "tsk_energy", "agent_id": "agt_pip"])
+        XCTAssertEqual(payload.agentId, "agt_pip")
+        let router = LinkRouter()
+        await router.handle(push: payload)
+        XCTAssertEqual(router.buddy, "agt_pip")
+        router.consumeBuddy()
+        XCTAssertNil(router.buddy)
+
+        await router.handle(push: PushPayload(title: "Marcel updated", body: "All good.", category: "note",
+                                              deepLink: "marcel://status"))
+        XCTAssertNil(router.buddy, "a notice about Marcel as a whole: no switch")
+        let bad = PushPayload(title: "t", body: "b", category: "note", userInfo: ["agent_id": "../agt pip"])
+        XCTAssertNil(bad.agentId, "an id that is not an id is dropped")
+    }
+
     private func approvalPush(_ id: String? = "apr_engie") -> PushPayload {
         PushPayload(title: "Marcel needs you", body: "Allow `docker system df -v`?", category: "approval",
                     deepLink: "marcel://approval/apr_engie", approvalId: id, taskId: "tsk_energy")
@@ -269,17 +288,6 @@ final class LinkRoutingTests: XCTestCase {
         await push.respond(action: PushCategories.approve, payload: approvalPush())
         XCTAssertEqual(hub.requests, ["POST /approvals/apr_engie"])
         XCTAssertEqual(reported, [], "not the false \"isn't paired\"")
-    }
-
-    /// app API 0.7: a family member's phone may not approve a change to Marcel itself. The hub says who can.
-    func testAnOwnerOnlyAnswerShowsTheHubsSentence() async {
-        let hub = FakeHub()
-        var reported: [String] = []
-        let push = launchedHandler(hub) { reported.append($0) }
-        hub["POST /approvals/apr_engie"] = (403, Fx.error("owner_only", "Only Shaun can approve changes to Marcel. Ask Shaun to do it."))
-        await push.respond(action: PushCategories.approve, payload: approvalPush())
-        XCTAssertEqual(reported, ["Only Shaun can approve changes to Marcel. Ask Shaun to do it."])
-        XCTAssertEqual(SettingsError.ownerOnly(nil).errorDescription, "Only the owner can answer this. Ask them to approve it on their phone.")
     }
 
     func testAnAnswerThatFailsIsReportedInPlainWords() async {

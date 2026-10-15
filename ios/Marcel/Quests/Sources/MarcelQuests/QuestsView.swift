@@ -38,8 +38,10 @@ public struct QuestsView: View {
     private var log: some View {
         // Ages on the cards ("active 5m ago") move on once a minute.
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
-            let board = QuestBoard.read(tasks: tasks, artifacts: artifacts, projects: projects, filter: model.filter,
-                                        now: timeline.date)
+            // Only the buddy this phone shows (B-49).
+            let mine = CurrentBuddy.shared.rows(projects: projects, tasks: tasks, artifacts: artifacts)
+            let board = QuestBoard.read(tasks: mine.tasks, artifacts: mine.artifacts, projects: mine.projects,
+                                        filter: model.filter, now: timeline.date)
             content(board)
         }
         .background(ChatPalette(scheme).well.color)

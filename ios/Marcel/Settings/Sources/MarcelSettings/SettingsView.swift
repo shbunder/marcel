@@ -30,11 +30,11 @@ public struct SettingsAppLinks {
 
 /// Settings (B-40, wireframe Q6), opened from the avatar in the chat: the helper's card on top ("Edit avatar and name
 /// ›"), then **You** (notifications, Face ID), **Marcel** (notebook, system status), **Schedules**, **Plan usage**
-/// and **Account** (People for the owner, phones, sign out), each a white box under its small title.
+/// and **Account** (Buddies, phones, sign out), each a white box under its small title.
 public struct SettingsView: View {
     @State private var model: SettingsModel
     private let statusModel: () -> StatusModel
-    private let peopleModel: () -> PeopleModel
+    private let buddiesModel: () -> BuddiesModel
     private let links: SettingsAppLinks
     private let signedOut: (String?) -> Void
 
@@ -43,19 +43,19 @@ public struct SettingsView: View {
     @Environment(\.colorScheme) private var scheme
 
     enum Screen: Hashable {
-        case status, people, look
+        case status, buddies, look
     }
 
     /// - Parameters:
     ///   - status: makes the status screen's model when "System status" is tapped.
-    ///   - people: makes People's model (owner only).
+    ///   - buddies: makes Buddies' model.
     ///   - links: what Settings needs from the app.
     ///   - signedOut: after "Sign out of this phone", with the note when the hub couldn't be told.
-    public init(model: SettingsModel, status: @escaping () -> StatusModel, people: @escaping () -> PeopleModel,
+    public init(model: SettingsModel, status: @escaping () -> StatusModel, buddies: @escaping () -> BuddiesModel,
                 links: SettingsAppLinks, signedOut: @escaping (String?) -> Void = { _ in }) {
         _model = State(initialValue: model)
         self.statusModel = status
-        self.peopleModel = people
+        self.buddiesModel = buddies
         self.links = links
         self.signedOut = signedOut
     }
@@ -75,7 +75,7 @@ public struct SettingsView: View {
             .navigationDestination(item: $showing) { screen in
                 switch screen {
                 case .status: StatusView(model: statusModel())
-                case .people: PeopleView(model: peopleModel())
+                case .buddies: BuddiesView(model: buddiesModel())
                 case .look:
                     LookEditor(settings: model, look: links.looks.flatMap { looks in
                         model.agent.map { LookModel(service: looks, agentId: $0.id, name: $0.name, current: $0.drawnLook) }
@@ -101,7 +101,7 @@ public struct SettingsView: View {
             }
         }
         actions.openStatus = { showing = .status }
-        actions.openPeople = { showing = .people }
+        actions.openBuddies = { showing = .buddies }
         actions.editLook = { showing = .look }
         actions.openNotebook = links.openNotebook ?? {}
         return actions
@@ -151,7 +151,7 @@ struct SettingsActions {
     var revoke: (Device) -> Void = { _ in }
     var signOut: () -> Void = {}
     var openStatus: () -> Void = {}
-    var openPeople: () -> Void = {}
+    var openBuddies: () -> Void = {}
     var editLook: () -> Void = {}
     var openNotebook: () -> Void = {}
 }
@@ -271,9 +271,8 @@ struct SettingsContent: View {
 
     @ViewBuilder private var accountGroup: some View {
         SettingsCard("Account") {
-            if model.showsPeople {
-                SettingsLinkRow("People", detail: "Add someone to Marcel, or remove them", action: actions.openPeople)
-            }
+            SettingsLinkRow("Buddies", detail: "Rename, change a look, archive, or pair another phone",
+                            action: actions.openBuddies)
             phonesRows
             SettingsDangerRow(label: "Sign out of this phone") { confirming = .signOut }
         }

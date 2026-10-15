@@ -76,6 +76,19 @@ README § Chat); the colours are the wireframe's (explainer artifact KtdD3PMLeyZ
 - Tapping an item opens the artifact viewer (`ArtifactViewer` from MarcelItems, S-12.8). A quest card opens the
   quest view (`QuestView` from MarcelQuest, S-12.6).
 
+## Buddies (S-22.12, B-49)
+
+- **Tap the avatar** → the buddy sheet (`BuddyPicker.swift`): every live buddy with its avatar, its name and the last
+  message of its main chat (`GET /me`, then `GET /conversations/{id}/messages?limit=1` each), a check on the one shown,
+  **New buddy** (`POST /agents`, then shown), and below, this buddy's notebook and Settings (what the tap used to open).
+  Picking one sends `PATCH /devices/{id}` (this phone, `Me.device_id`), then `CurrentBuddy` (MarcelKit) changes and the
+  chat reloads for that buddy (`ChatModel.switchTo`): its conversation, name, avatar and moods. Every other tab follows
+  `CurrentBuddy`.
+- **Touch and hold the avatar** → straight back to the buddy shown before (`ChatModel.switchBack`; VoiceOver: "Back to
+  Pip").
+- **Another phone switched this one** (or its buddy was archived): `device.updated` for this phone switches it too.
+- **Starting:** `mainAgent()` asks `GET /devices` which buddy this phone shows; offline it uses the one remembered.
+
 ## The avatar header (S-13.3, B-28)
 
 Code in `Sources/MarcelChat/AvatarHeader.swift` (the story names `Marcel/Chat/AvatarHeader.swift`; Chat is a package,

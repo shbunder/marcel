@@ -64,7 +64,7 @@ public struct WelcomeView: View {
                         .foregroundStyle(ChatCardKind.failed.label(in: palette).color)
                         .multilineTextAlignment(.center)
                 }
-                Text("No code? Ask the owner to add you.")
+                Text("No code? Make one in Settings › Buddies on a phone that has Marcel.")
                     .font(.footnote)
                     .foregroundStyle(palette.muted.color)
                     .multilineTextAlignment(.center)

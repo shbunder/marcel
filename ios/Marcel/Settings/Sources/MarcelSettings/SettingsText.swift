@@ -88,6 +88,7 @@ public struct SettingsText: Sendable {
         let push = switch device.push {
         case .apns: "notifications by Apple"
         case .ntfy: "notifications by ntfy"
+        case .relay: "notifications by Marcel's relay"
         case .none: "no notifications"
         }
         if device.current == true { return "This phone · \(push)" }

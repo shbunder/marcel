@@ -60,7 +60,10 @@ public final class AppFlow {
             let service = makeService(hub)
             do {
                 let me = try await service.me()
-                guard let agent = me.agents.first, agent.onboardedAt == nil else { return enter(hub) }
+                // The buddy this phone starts on (a pairing link's `&buddy=`, B-49), else the first.
+                guard let agent = CurrentBuddy.shared.pick(from: me.agents), agent.onboardedAt == nil else {
+                    return enter(hub)
+                }
                 onboarding = OnboardingModel(me: me, agent: agent, service: service,
                                              looks: makeLookService(hub))
                 screen = .onboarding

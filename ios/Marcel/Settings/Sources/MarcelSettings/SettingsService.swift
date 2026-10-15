@@ -4,7 +4,6 @@ import OpenAPIRuntime
 import OpenAPIURLSession
 
 public typealias Me = Components.Schemas.Me
-public typealias Device = Components.Schemas.Device
 public typealias Schedule = Components.Schemas.Schedule
 public typealias Health = Components.Schemas.Health
 public typealias Agent = Components.Schemas.Agent
@@ -45,14 +44,10 @@ public protocol SettingsService {
     func projects(agentId: String) async throws -> [Project]
     /// `POST /approvals/{id}`.
     func answer(approvalId: String, approve: Bool) async throws
-    /// `GET /users`: everyone, owner first. Owner only.
-    func users() async throws -> [User]
-    /// `POST /users`: a family member and their helper (its look picked from the helper's name). Owner only.
-    func addUser(name: String, helperName: String) async throws -> User
-    /// `POST /users/{id}/pairing-codes`: a one-time code for their phone, ten minutes. Owner only.
-    func pairingCode(userId: String) async throws -> IssuedPairingCode
-    /// `DELETE /users/{id}`: their phones are signed out and their helper stops. Owner only.
-    func removeUser(userId: String) async throws
+    /// `POST /pairing-codes`: a one-time code for another phone, ten minutes; it starts on `agentId` when given.
+    func pairingCode(agentId: String?) async throws -> IssuedPairingCode
+    /// `POST /agents/{id}/archive`: the buddy's brain stops; its chat and notebook stay readable.
+    func archive(agentId: String) async throws -> Agent
 }
 
 /// Why something in Settings did not work, in words a family member reads on a phone.
@@ -71,9 +66,6 @@ public enum SettingsError: Error, Equatable, LocalizedError {
     case badPushToken
     /// 409 on an approval: answered first (a terminal, another phone) or expired.
     case alreadyAnswered
-    /// 403 `owner_only` (app API 0.7): a family member's phone tried an owner-only action, such as approving a
-    /// change to Marcel itself. Carries the hub's sentence, which names the owner.
-    case ownerOnly(String?)
     /// 400: the hub says what to change.
     case refused(String)
     case notFound
@@ -94,7 +86,6 @@ public enum SettingsError: Error, Equatable, LocalizedError {
         case .badPushToken: "Apple gave this phone a push token the hub can't use, so notifications weren't turned on. "
             + "Try again in a minute."
         case .alreadyAnswered: "That question was already answered, or it expired."
-        case .ownerOnly(let message): message ?? "Only the owner can answer this. Ask them to approve it on their phone."
         case .refused(let message): message
         case .notFound: "The hub no longer has that. Pull down to refresh."
         case .unauthorized: "The hub no longer accepts this phone. Pair it again."
@@ -300,7 +291,6 @@ public struct LiveSettingsService: SettingsService {
         switch answer {
         case .ok: return
         case .conflict: throw SettingsError.alreadyAnswered
-        case .forbidden(let forbidden): throw SettingsError.ownerOnly(try? forbidden.body.json.message)
         case .badRequest: throw SettingsError.unexpected("answer, HTTP 400")
         case .unauthorized: throw SettingsError.unauthorized
         case .notFound: throw SettingsError.alreadyAnswered
@@ -308,48 +298,29 @@ public struct LiveSettingsService: SettingsService {
         }
     }
 
-    // MARK: People (B-37)
+    // MARK: Buddies (B-49)
 
-    public func users() async throws -> [User] {
-        switch try await call({ try await client.listUsers() }) {
-        case .ok(let ok): return try ok.body.json
-        case .unauthorized: throw SettingsError.unauthorized
-        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
-        case .undocumented(let status, _): throw SettingsError.undocumented(status, "people")
-        }
-    }
-
-    public func addUser(name: String, helperName: String) async throws -> User {
+    public func pairingCode(agentId: String?) async throws -> IssuedPairingCode {
         let answer = try await call {
-            try await client.addUser(body: .json(.init(name: name, agent: .init(name: helperName))))
+            try await client.createPairingCode(body: agentId.map { .json(.init(agentId: $0)) })
         }
         switch answer {
         case .created(let created): return try created.body.json
-        case .badRequest(let bad):
-            throw SettingsError.refused((try? bad.body.json.message) ?? "The hub didn't accept those names.")
         case .unauthorized: throw SettingsError.unauthorized
-        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
-        case .undocumented(let status, _): throw SettingsError.undocumented(status, "add person")
-        }
-    }
-
-    public func pairingCode(userId: String) async throws -> IssuedPairingCode {
-        switch try await call({ try await client.createPairingCode(path: .init(userId: userId)) }) {
-        case .created(let created): return try created.body.json
-        case .unauthorized: throw SettingsError.unauthorized
-        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
         case .notFound: throw SettingsError.notFound
+        case .badRequest: throw SettingsError.unexpected("pairing code, HTTP 400")
         case .undocumented(let status, _): throw SettingsError.undocumented(status, "pairing code")
         }
     }
 
-    public func removeUser(userId: String) async throws {
-        switch try await call({ try await client.removeUser(path: .init(userId: userId)) }) {
-        case .noContent, .notFound: return  // gone, or already gone
+    public func archive(agentId: String) async throws -> Agent {
+        switch try await call({ try await client.archiveAgent(path: .init(agentId: agentId)) }) {
+        case .ok(let ok): return try ok.body.json
+        case .conflict(let no):
+            throw SettingsError.refused((try? no.body.json.message) ?? "You need at least one buddy. Add another first.")
         case .unauthorized: throw SettingsError.unauthorized
-        case .forbidden(let no): throw SettingsError.ownerOnly(try? no.body.json.message)
-        case .conflict(let no): throw SettingsError.refused((try? no.body.json.message) ?? "The owner can't be removed.")
-        case .undocumented(let status, _): throw SettingsError.undocumented(status, "remove person")
+        case .notFound: throw SettingsError.notFound
+        case .undocumented(let status, _): throw SettingsError.undocumented(status, "archive")
         }
     }
 

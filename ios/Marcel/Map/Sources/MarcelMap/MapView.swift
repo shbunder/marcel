@@ -42,7 +42,7 @@ public struct MapView: View {
         NavigationStack(path: $navigation.path) {
             // Board times ("11:52", "yesterday") move on once a minute.
             TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                let input = MapInput.read(tasks: tasks, artifacts: artifacts, projects: projects)
+                let input = MapInput.mine(tasks: tasks, artifacts: artifacts, projects: projects)
                 map(ProjectMap(projects: input.projects, artifacts: input.artifacts, now: timeline.date))
             }
             .background(ChatPalette(scheme).well.color)
@@ -158,7 +158,7 @@ struct ProjectRoomView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
-            let input = MapInput.read(tasks: tasks, artifacts: artifacts, projects: projects)
+            let input = MapInput.mine(tasks: tasks, artifacts: artifacts, projects: projects)
             if let room = ProjectRoom(projectId: projectId, tasks: input.tasks, artifacts: input.artifacts,
                                       projects: input.projects, now: timeline.date) {
                 content(room)
@@ -254,6 +254,12 @@ public struct MapInput: Sendable {
         return MapInput(tasks: rows(tasks.map(\.payload), as: HubTask.self),
                         artifacts: rows(artifacts.map(\.payload), as: Artifact.self),
                         projects: rows(projects.map(\.payload), as: Project.self))
+    }
+
+    /// The Map's input from the cache, for the buddy this phone shows only (B-49).
+    @MainActor static func mine(tasks: [CachedTask], artifacts: [CachedArtifact], projects: [CachedProject]) -> MapInput {
+        let mine = CurrentBuddy.shared.rows(projects: projects, tasks: tasks, artifacts: artifacts)
+        return MapInput.read(tasks: mine.tasks, artifacts: mine.artifacts, projects: mine.projects)
     }
 
     /// Reads the cache straight from a context (tests, previews): the same rows the screen's `@Query`s hold.

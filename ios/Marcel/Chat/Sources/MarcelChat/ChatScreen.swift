@@ -24,6 +24,17 @@ public struct ChatScreen: View {
     }
 
     @State private var path: [ChatRoute] = []
+    @State private var pickingBuddy = false
+
+    /// The avatar's links with the buddy sheet and the long-press back to the previous buddy.
+    private var links: AvatarLinks {
+        var links = avatar
+        links.buddies = { pickingBuddy = true }
+        if let name = model.previousBuddyName {
+            links.previous = (name, { Task { await model.switchBack() } })
+        }
+        return links
+    }
 
     public var body: some View {
         NavigationStack(path: $path) {
@@ -43,7 +54,20 @@ public struct ChatScreen: View {
             model.attach(item)
             path.removeAll()
         }
-        .task { await model.start() }
+        .task {
+            await model.start()
+            await model.loadBuddies()
+        }
+        // B-49: tap the avatar to switch buddies.
+        .sheet(isPresented: $pickingBuddy) {
+            BuddyPicker(buddies: model.buddies, current: model.agentId,
+                        links: avatar.named(model.agentName ?? AgentName.fallback),
+                        pick: { id in Task { await model.switchTo(id) } },
+                        add: { name in Task { await model.addBuddy(named: name) } })
+                .task { await model.loadBuddies() }
+                .environment(\.chatAvatars, model.avatars)
+                .presentationDetents([.medium, .large])
+        }
         // Reply in thread (B-08): the side chat as a sheet over the feed.
         .sheet(item: Binding(get: { model.sideChat }, set: { model.sideChat = $0 })) { side in
             SideChatSheet(
@@ -86,13 +110,13 @@ public struct ChatScreen: View {
             if let conversationId = model.conversationId {
                 // A new `limit` re-creates the query with the bigger window; the scroll state stays.
                 LiveFeed(model: model, conversationId: conversationId, limit: model.limit, offline: offline,
-                         actions: actions, avatar: avatar)
+                         actions: actions, avatar: links)
             } else {
                 ChatLayout(header: ChatHeaderState(tasks: [HubTask](), offline: offline, name: model.agentName,
                                                    live: model.action, agentId: model.agentId,
                                      mood: model.mood, personality: model.personality),
                            problem: model.problem,
-                           avatar: avatar, composer: { EmptyView() }) {
+                           avatar: links, composer: { EmptyView() }) {
                     Text(model.problem == nil ? "Opening the conversation…" : "Nothing saved on this phone yet.")
                         .font(.footnote)
                         .foregroundStyle(ChatPalette(scheme).muted.color)
@@ -173,8 +197,10 @@ struct LiveFeed: View {
     }
 
     var body: some View {
-        let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: tasks, artifacts: artifacts,
-                                     projects: projects, agents: agents, agentId: model.agentId)
+        // Only the buddy shown (B-49): the header's counts and open approvals are its quests only.
+        let mine = model.buddy.rows(projects: projects, tasks: tasks, artifacts: artifacts)
+        let input = FeedInput.decode(newestMessages: window, limit: limit, tasks: mine.tasks, artifacts: mine.artifacts,
+                                     projects: mine.projects, agents: agents, agentId: model.agentId)
         let items = ChatFeed.items(input, local: model.local)
         let header = ChatHeaderState(tasks: input.tasks.values, offline: offline, name: model.agentName,
                                      live: model.action, agentId: model.agentId,
@@ -331,6 +357,11 @@ enum FeedMetrics {
 public struct AvatarLinks {
     public var notebook: (() -> Void)?
     public var settings: (() -> Void)?
+    /// Opens the buddy sheet (B-49); when set, a tap on the avatar does this, and notebook and Settings move into
+    /// the sheet.
+    public var buddies: (() -> Void)?
+    /// A long-press: straight back to the buddy shown before, with its name ("Back to Pip").
+    public var previous: (name: String, run: () -> Void)?
     /// The agent's name, for "<name>'s notebook" (the header sets it).
     public var agentName = AgentName.fallback
 
@@ -339,14 +370,24 @@ public struct AvatarLinks {
         self.settings = settings
     }
 
+    /// The same links, saying `name` ("Pip's notebook").
+    public func named(_ name: String) -> AvatarLinks {
+        var links = self
+        links.agentName = name
+        return links
+    }
+
     /// The named actions, in menu order.
     public var actions: [(name: String, run: () -> Void)] {
         [notebook.map { ("\(agentName)'s notebook", $0) }, settings.map { ("Settings", $0) }].compactMap { $0 }
     }
 
-    /// "Opens Marcel's notebook or Settings".
+    /// "Opens Marcel's notebook or Settings", or with buddies "Switches buddy. Touch and hold: back to Pip".
     public var hint: String {
-        "Opens " + actions.map(\.name).joined(separator: " or ")
+        if buddies != nil {
+            return "Switches buddy" + (previous.map { ". Touch and hold: back to \($0.name)" } ?? "")
+        }
+        return "Opens " + actions.map(\.name).joined(separator: " or ")
     }
 }
 
@@ -412,7 +453,21 @@ struct ChatLayout<Feed: View, ComposerView: View>: View {
     /// The header, opening what a tap on it opens (one link at once, several through a choice).
     @ViewBuilder
     private func headerView(links: [(name: String, run: () -> Void)], hint: String) -> some View {
-        if links.isEmpty {
+        if let buddies = avatar.buddies {
+            AvatarHeader(state: header)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: buddies)
+                .onLongPressGesture { avatar.previous?.run() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(hint)
+                .accessibilityActions {
+                    Button("Switch buddy", action: buddies)
+                    if let previous = avatar.previous { Button("Back to \(previous.name)", action: previous.run) }
+                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                        Button(link.name, action: link.run)
+                    }
+                }
+        } else if links.isEmpty {
             AvatarHeader(state: header)
         } else {
             AvatarHeader(state: header)

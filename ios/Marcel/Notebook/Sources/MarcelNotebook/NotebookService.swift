@@ -194,11 +194,11 @@ public struct LiveNotebookService: NotebookService {
         }
     }
 
-    /// The agent the notebook is about: the first in `GET /me` (a household has one agent per person).
+    /// The buddy the notebook is about: the one this phone shows (`CurrentBuddy`, B-49).
     private func agent() async throws -> String {
         switch try await call({ try await client.getMe() }) {
         case .ok(let ok):
-            guard let id = try ok.body.json.agents.first?.id else { throw NotebookError.noAgent }
+            guard let id = await CurrentBuddy.chosen(from: try ok.body.json.agents)?.id else { throw NotebookError.noAgent }
             return id
         case .unauthorized: throw NotebookError.unauthorized
         case .undocumented(let status, _): throw NotebookError.undocumented(status, "who you are")

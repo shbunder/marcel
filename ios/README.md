@@ -118,7 +118,8 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   `Artifact` and `PushTarget` into opaque blobs at contract 0.1.0). The contract itself is never changed.
 - **Events** — `contracts/events.schema.json` is not read by generators, so `HubEvent` is written by hand.
   A test decodes every example in that schema; unknown event types are kept as `.unknown` so ids still advance.
-- **Pairing** — the QR code holds `marcel://pair?hub=<server URL>&code=<code>`. `PairingService` posts the
+- **Pairing** — the QR code holds `marcel://pair?hub=<server URL>&code=<code>`, and `&buddy=<agent id>` when the code
+  was made to start on a buddy (app API 0.8.0; the app then starts on it). `PairingService` posts the
   code to `POST /pair` on that hub, keeps the **token in the Keychain** (`KeychainTokenStore`, readable
   after first unlock, this device only) and the hub's address in UserDefaults. The token never goes to
   UserDefaults; a test reads both stores to prove it. In the simulator, paste the link instead of scanning.
@@ -134,6 +135,12 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   `agent.updated` gave (a `/me` refresh keeps it), so the app reloads a sheet only when it changed. Messages keep
   `reply_to_message_id`, and `replies(to:)` finds the replies to a question. Screens that need events the cache
   does not store (a quest's `task.event` and approval frames) listen with `observeFrames`.
+
+- **The buddy shown** — `CurrentBuddy` (S-22.12, B-49) is the one place every tab reads the buddy this phone shows:
+  the hub's `Device.agent_id` (`GET /devices`, `PATCH /devices/{id}`, `device.updated`), a pairing link's `&buddy=`,
+  or a notification about another buddy. It is kept in UserDefaults (with the buddy shown before, for the chat's
+  long-press), so an offline start knows it. Quests and Map show only that buddy's projects and quests
+  (`CurrentBuddy.rows`); the services pick it from `/me` with `CurrentBuddy.chosen(from:)`.
 
 ## Talking to the mock hub
 

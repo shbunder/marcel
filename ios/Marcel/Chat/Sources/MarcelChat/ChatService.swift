@@ -13,14 +13,33 @@ public struct MainAgent: Equatable, Sendable {
     public var state: AvatarState?
     /// The agent's Pixel Zoo look (app API 0.7); nil before one is chosen or when this build does not know it.
     public var look: KnownLook?
+    /// This phone (`Me.device_id`), whose buddy `PATCH /devices/{id}` switches (app API 0.8.0).
+    public var deviceId: String?
 
     public init(conversationId: String, name: String, id: String? = nil, state: AvatarState? = nil,
-                look: KnownLook? = nil) {
+                look: KnownLook? = nil, deviceId: String? = nil) {
         self.conversationId = conversationId
         self.name = name
         self.id = id
         self.state = state
         self.look = look
+        self.deviceId = deviceId
+    }
+}
+
+/// One row of the buddy sheet (B-49): a live buddy, and the last message of its main conversation.
+public struct BuddyChoice: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var look: KnownLook?
+    /// The newest message of its main chat, in a line; nil when it has none (or it could not be read).
+    public var lastMessage: String?
+
+    public init(id: String, name: String, look: KnownLook? = nil, lastMessage: String? = nil) {
+        self.id = id
+        self.name = name
+        self.look = look
+        self.lastMessage = lastMessage
     }
 }
 
@@ -28,8 +47,16 @@ public struct MainAgent: Equatable, Sendable {
 /// stream keeps current. Tests use a fake; the app uses `LiveChatService`.
 @MainActor
 public protocol ChatService {
-    /// The agent's main conversation and its name (`GET /me`).
+    /// The buddy this phone shows (`GET /me`, `GET /devices` for this phone's `agent_id`, `CurrentBuddy`): its main
+    /// conversation and its name.
     func mainAgent() async throws -> MainAgent
+    /// Every live buddy, with the last message of its main conversation (`GET /me`, then
+    /// `GET /conversations/{id}/messages?limit=1` each).
+    func buddies() async throws -> [BuddyChoice]
+    /// Shows `agentId` on this phone (`PATCH /devices/{device_id}`).
+    func show(agentId: String, deviceId: String) async throws
+    /// Adds a buddy (`POST /agents`); the hub picks its look from the name.
+    func addBuddy(name: String) async throws -> BuddyChoice
     /// Stores your message (`POST /conversations/{id}/messages`). It never waits for Marcel; the same
     /// `clientId` sent again returns the same message, so a retry never doubles it. An attached item goes as
     /// `artifact_id`, tagged with the item's project (`project_id`).
@@ -49,6 +76,11 @@ public protocol ChatService {
 }
 
 extension ChatService {
+    /// A service with one buddy and nothing to switch (tests that do not switch).
+    public func buddies() async throws -> [BuddyChoice] { [] }
+    public func show(agentId: String, deviceId: String) async throws {}
+    public func addBuddy(name: String) async throws -> BuddyChoice { throw ChatError("Can't add a buddy here.") }
+
     /// A service with no avatars to give: every agent plays the bundled giraffe.
     public func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download? { nil }
 
@@ -86,9 +118,12 @@ public struct ChatError: Error, Equatable, LocalizedError {
 /// The real hub, through the generated client.
 public struct LiveChatService: ChatService {
     let client: Client
+    /// The buddy this phone shows (the app's one `CurrentBuddy`; tests pass their own).
+    let buddy: CurrentBuddy
 
-    public init(client: Client) {
+    public init(client: Client, buddy: CurrentBuddy = .shared) {
         self.client = client
+        self.buddy = buddy
     }
 
     public func avatar(agentId: String, ifNoneMatch: String?) async throws -> AvatarSheets.Download? {
@@ -122,16 +157,72 @@ public struct LiveChatService: ChatService {
         throw ChatError.unexpected("avatar changed while it was fetched")
     }
 
-    public func mainAgent() async throws -> MainAgent {
+    private func me() async throws -> Me {
         let output: Operations.GetMe.Output
         do { output = try await client.getMe() } catch { throw ChatError.unreachable }
         switch output {
-        case .ok(let ok):
-            guard let agent = try ok.body.json.agents.first else { throw ChatError("This hub has no agent yet.") }
-            return MainAgent(conversationId: agent.mainConversationId, name: agent.name, id: agent.id,
-                             state: AvatarState(agent.state), look: agent.drawnLook)
+        case .ok(let ok): return try ok.body.json
         case .unauthorized: throw ChatError.unpaired
         case .undocumented(let status, _): throw ChatError.unexpected("me, HTTP \(status)")
+        }
+    }
+
+    public func mainAgent() async throws -> MainAgent {
+        let me = try await me()
+        // The hub's word on which buddy this phone shows; offline from here on, `CurrentBuddy` remembers it.
+        // If the hub can't say (no `/devices` yet, a hiccup), the buddy remembered stays; one no longer live (archived)
+        // gives way to the first live buddy.
+        if case .ok(let ok) = try? await client.listDevices(), let devices = try? ok.body.json,
+           let mine = devices.first(where: { $0.id == me.deviceId }) {
+            buddy.apply(deviceId: mine.id, agentId: mine.agentId, thisDevice: me.deviceId)
+        }
+        guard let agent = buddy.pick(from: me.agents) else { throw ChatError("This hub has no buddy yet.") }
+        buddy.show(agent.id)
+        return MainAgent(conversationId: agent.mainConversationId, name: agent.name, id: agent.id,
+                         state: AvatarState(agent.state), look: agent.drawnLook, deviceId: me.deviceId)
+    }
+
+    public func buddies() async throws -> [BuddyChoice] {
+        let me = try await me()
+        var choices: [BuddyChoice] = []
+        for agent in me.agents where agent.archivedAt == nil {
+            var last: String?
+            if case .ok(let ok) = try? await client.listMessages(
+                path: .init(conversationId: agent.mainConversationId), query: .init(limit: 1)),
+               let page = try? ok.body.json, let message = page.items.first {
+                last = message.text.map { $0.split(whereSeparator: \.isNewline).joined(separator: " ") }
+            }
+            choices.append(BuddyChoice(id: agent.id, name: agent.name, look: agent.drawnLook, lastMessage: last))
+        }
+        return choices
+    }
+
+    public func show(agentId: String, deviceId: String) async throws {
+        let output: Operations.UpdateDevice.Output
+        do {
+            output = try await client.updateDevice(path: .init(deviceId: deviceId), body: .json(.init(agentId: agentId)))
+        } catch { throw ChatError("Couldn't switch: can't reach the hub.") }
+        switch output {
+        case .ok: return
+        case .notFound: throw ChatError("That buddy is gone. Pick another one.")
+        case .unauthorized: throw ChatError.unpaired
+        case .badRequest: throw ChatError.unexpected("switch, HTTP 400")
+        case .undocumented(let status, _): throw ChatError.unexpected("switch, HTTP \(status)")
+        }
+    }
+
+    public func addBuddy(name: String) async throws -> BuddyChoice {
+        let output: Operations.CreateAgent.Output
+        do { output = try await client.createAgent(body: .json(.init(name: name))) } catch {
+            throw ChatError("Couldn't add the buddy: can't reach the hub.")
+        }
+        switch output {
+        case .created(let created):
+            let agent = try created.body.json
+            return BuddyChoice(id: agent.id, name: agent.name, look: agent.drawnLook)
+        case .badRequest(let bad): throw ChatError((try? bad.body.json.message) ?? "The hub refused that name.")
+        case .unauthorized: throw ChatError.unpaired
+        case .undocumented(let status, _): throw ChatError.unexpected("new buddy, HTTP \(status)")
         }
     }
 
@@ -196,10 +287,6 @@ public struct LiveChatService: ChatService {
         case .ok(let ok): return try ok.body.json
         case .conflict(let conflict): return try conflict.body.json  // answered elsewhere, or expired
         case .notFound: throw ChatError("That question is gone from the hub.")
-        // 403 owner_only (app API 0.7): a change to Marcel itself, which only the owner approves. The hub's sentence
-        // names the owner.
-        case .forbidden(let forbidden):
-            throw ChatError((try? forbidden.body.json.message) ?? "Only the owner can answer this. Ask them to approve it on their phone.")
         case .unauthorized: throw ChatError.unpaired
         case .badRequest: throw ChatError.unexpected("answer, HTTP 400")
         case .undocumented(let status, _): throw ChatError.unexpected("answer, HTTP \(status)")

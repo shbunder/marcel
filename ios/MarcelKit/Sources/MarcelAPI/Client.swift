@@ -10,7 +10,8 @@ public import struct Foundation.Data
 public import struct Foundation.Date
 #endif
 import HTTPTypes
-/// The API the iPhone app uses to talk to the hub on the NUC. **Every path, including `/health`,
+/// The API the iPhone app uses to talk to the hub on the person's own computer (the NUC for the
+/// owner's install, ADR-013). **Every path, including `/health`,
 /// `/pair` and `/ws`, sits under the server URL** (`https://marcel-bot.com/api/...`); the tunnel
 /// exposes `/api/*` and nothing else of the app's. Every route needs a device token
 /// (`Authorization: Bearer <token>`), except `/health` and `/pair`.
@@ -25,14 +26,17 @@ import HTTPTypes
 /// Errors always have the `Error` shape, with a `message` written for the person holding the phone.
 /// Lists are paginated by cursor: pass `cursor` from the previous page's `next_cursor`.
 ///
-/// **People** (new in 0.7.0, B-37…B-40). Every device belongs to one person (`Me.role`): the
-/// `owner`, who runs Marcel at home, or a `member` of the family. Each person sees only their own
-/// agents and everything under them. Operations marked `x-owner-only: true` are the owner's alone;
-/// a member gets 403 `owner_only` with a message that says to ask the owner. Answering a
-/// self-change approval card is owner-only too (`POST /approvals/{approval_id}`).
+/// **One person, many buddies** (0.8.0, ADR-013, B-49). One install belongs to one person, the
+/// Claude account holder (`Me.user_id`, `Me.name`). That person has one or more **buddies**: the
+/// schema is still called `Agent`, so clients do not churn, but the app and these descriptions say
+/// buddy. Each buddy has its own brain, chat, memory and look. Every paired phone of the one person
+/// may use every route and see every buddy; there are no roles. Each phone shows one buddy
+/// (`Device.agent_id`) and switches with `PATCH /devices/{device_id}`.
 ///
-/// **0.7.0 is additive.** Every field it adds to an existing schema is optional, so a hub that
-/// does not fill it yet still matches; the operations it adds are served story by story.
+/// **0.8.0 is breaking.** It removes the people routes and their schemas (`User`, `NewUser`,
+/// `UserRole`), `Me.role`, the `owner_only` refusal and the owner-only mark on operations (ADR-013
+/// retires them). Every field it adds to an existing schema is optional, except `Device.agent_id`,
+/// which a 0.8.0 hub always sends. The operations it adds are served story by story.
 ///
 public struct Client: APIProtocol {
     /// The underlying HTTP client.
@@ -291,7 +295,7 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// Who this device belongs to, and that person's agents.
+    /// The one person this install belongs to, and their live buddies.
     ///
     /// - Remark: HTTP `GET /me`.
     /// - Remark: Generated from `#/paths//me/get(getMe)`.
@@ -443,6 +447,149 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// Choose the buddy this phone shows (B-49). New in 0.8.0.
+    ///
+    /// Any paired phone may change any phone's buddy, its own included. The hub answers the
+    /// updated `Device` and sends the `device.updated` event, so the phone switches even when the
+    /// change came from another phone. That buddy's pushes go to this phone from then on; pushes
+    /// about no buddy (redeploy, backup, usage, logged out) go to every phone.
+    ///
+    ///
+    /// - Remark: HTTP `PATCH /devices/{device_id}`.
+    /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)`.
+    public func updateDevice(_ input: Operations.UpdateDevice.Input) async throws -> Operations.UpdateDevice.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.UpdateDevice.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/devices/{}",
+                    parameters: [
+                        input.path.deviceId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .patch
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.UpdateDevice.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.Device.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.UpdateDevice.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -678,126 +825,23 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    /// A one-time code that pairs another phone (B-49). New in 0.8.0.
     ///
-    /// - Remark: HTTP `GET /users`.
-    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
-    public func listUsers(_ input: Operations.ListUsers.Input) async throws -> Operations.ListUsers.Output {
+    /// Any paired phone may ask. The same kind of code `marcel-hub pair` prints: it works once,
+    /// for 10 minutes, with `POST /pair`. The new phone starts on `agent_id` when given (its link
+    /// carries `&buddy=<agent_id>`), else on the first live buddy. Show `link` as a QR code, or
+    /// share it as a link.
+    ///
+    ///
+    /// - Remark: HTTP `POST /pairing-codes`.
+    /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)`.
+    public func createPairingCode(_ input: Operations.CreatePairingCode.Input) async throws -> Operations.CreatePairingCode.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.ListUsers.id,
+            forOperation: Operations.CreatePairingCode.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/users",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.ListUsers.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.User].self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 401:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.Unauthorized.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .unauthorized(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.OwnerOnly.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// Add a family member and their helper. Owner only. New in 0.7.0.
-    ///
-    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
-    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
-    /// first phone with `POST /users/{user_id}/pairing-codes`.
-    ///
-    ///
-    /// - Remark: HTTP `POST /users`.
-    /// - Remark: Generated from `#/paths//users/post(addUser)`.
-    public func addUser(_ input: Operations.AddUser.Input) async throws -> Operations.AddUser.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.AddUser.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/users",
+                    template: "/pairing-codes",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -811,8 +855,10 @@ public struct Client: APIProtocol {
                 )
                 let body: OpenAPIRuntime.HTTPBody?
                 switch input.body {
+                case .none:
+                    body = nil
                 case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
+                    body = try converter.setOptionalRequestBodyAsJSON(
                         value,
                         headerFields: &request.headerFields,
                         contentType: "application/json; charset=utf-8"
@@ -824,7 +870,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 201:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.AddUser.Output.Created.Body
+                    let body: Operations.CreatePairingCode.Output.Created.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -834,7 +880,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.User.self,
+                            Components.Schemas.IssuedPairingCode.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -888,274 +934,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.OwnerOnly.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// Remove a family member. Owner only. New in 0.7.0.
-    ///
-    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
-    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
-    /// notes stay on the NUC.
-    ///
-    ///
-    /// - Remark: HTTP `DELETE /users/{user_id}`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
-    public func removeUser(_ input: Operations.RemoveUser.Input) async throws -> Operations.RemoveUser.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.RemoveUser.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/users/{}",
-                    parameters: [
-                        input.path.userId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .delete
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 204:
-                    return .noContent(.init())
-                case 401:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.Unauthorized.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .unauthorized(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.OwnerOnly.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                case 404:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.RemoveUser.Output.NotFound.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .notFound(.init(body: body))
-                case 409:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.RemoveUser.Output.Conflict.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .conflict(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
-    ///
-    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
-    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
-    /// it as a link.
-    ///
-    ///
-    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
-    public func createPairingCode(_ input: Operations.CreatePairingCode.Input) async throws -> Operations.CreatePairingCode.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.CreatePairingCode.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/users/{}/pairing-codes",
-                    parameters: [
-                        input.path.userId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 201:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.CreatePairingCode.Output.Created.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.IssuedPairingCode.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .created(.init(body: body))
-                case 401:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.Unauthorized.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .unauthorized(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.OwnerOnly.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.CreatePairingCode.Output.NotFound.Body
@@ -1190,9 +968,127 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// One agent, with its current state for the avatar.
+    /// Add a buddy (B-49). New in 0.8.0.
     ///
-    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
+    /// A new buddy with its own brain, main conversation and Inbox, as the first one has. Without
+    /// `look` the hub picks one from the name (the same name always gets the same look). Every
+    /// phone hears of it through `agent.updated`; no phone switches to it by itself.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents`.
+    /// - Remark: Generated from `#/paths//agents/post(createAgent)`.
+    public func createAgent(_ input: Operations.CreateAgent.Input) async throws -> Operations.CreateAgent.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.CreateAgent.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/agents",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 201:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.CreateAgent.Output.Created.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.Agent.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .created(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// One buddy, with its current state for the avatar.
+    ///
+    /// Any buddy of the one person, an archived one too (`archived_at`); an unknown id answers 404.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
@@ -1298,9 +1194,9 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// Rename an agent, change its look, or finish onboarding.
+    /// Rename a buddy, change its look, or finish onboarding.
     ///
-    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// Any buddy of the one person; an unknown id answers 404. A change sends the
     /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
     /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
     /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
@@ -1429,6 +1325,141 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// Archive a buddy (B-49). New in 0.8.0.
+    ///
+    /// The buddy's brain stops, and its schedules and digests with it; running quests finish on
+    /// their own. Its chat, quests, items and memory stay readable (`GET /agents/{agent_id}` shows
+    /// `archived_at`), and it leaves `Me.agents`. Phones that showed it switch to the first live
+    /// buddy (each gets `device.updated`). Archiving an archived buddy changes nothing and answers
+    /// it again. Sends `agent.updated`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents/{agent_id}/archive`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)`.
+    public func archiveAgent(_ input: Operations.ArchiveAgent.Input) async throws -> Operations.ArchiveAgent.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.ArchiveAgent.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/agents/{}/archive",
+                    parameters: [
+                        input.path.agentId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ArchiveAgent.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.Agent.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.Unauthorized.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unauthorized(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Components.Responses.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ArchiveAgent.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas._Error.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -1968,7 +1999,7 @@ public struct Client: APIProtocol {
     }
     /// The main conversation and every side thread of an agent.
     ///
-    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
+    /// A buddy that does not exist gives an empty list.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -2207,8 +2238,8 @@ public struct Client: APIProtocol {
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
-    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
-    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// With `mentions` (new in 0.7.0, B-42), each one must be an existing quest, project or
+    /// item (any buddy's), or the message is refused with 404 `mention_not_found` and nothing is stored. The
     /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
     /// `project` mention also sets the message's `project_id` when the message has none.
     ///
@@ -2752,7 +2783,7 @@ public struct Client: APIProtocol {
     }
     /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
     ///
-    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// Quests (`task`), projects and items (`artifact`) of every buddy whose title contains `q`
     /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
     /// `task` and `artifact`, `#` for `project`.
     ///
@@ -4189,8 +4220,8 @@ public struct Client: APIProtocol {
     }
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
-    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
-    /// 403 `owner_only` (new in 0.7.0).
+    /// Any paired phone may answer any card, a self-change card (`tool: self_change`, B-24) too
+    /// (0.8.0: the owner-only rule went with the people model, ADR-013).
     ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
@@ -4294,28 +4325,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Components.Responses.OwnerOnly.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas._Error.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Components.Responses.NotFound.Body

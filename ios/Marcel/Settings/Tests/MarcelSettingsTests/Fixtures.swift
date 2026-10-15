@@ -26,20 +26,22 @@ enum Fx {
     static func me(apns: Bool = false, ntfy: Bool = true) -> [String: Any] {
         var push: [String: Any] = ["apns": apns, "ntfy": ntfy]
         if ntfy { push["ntfy_server"] = "https://ntfy.sh" }
-        return ["user_id": "usr_owner", "name": "Shaun", "role": "owner", "device_id": "dev_phone", "agents": [agent],
+        return ["user_id": "usr_owner", "name": "Shaun", "device_id": "dev_phone", "agents": [agent],
                 "push": push]
     }
 
-    /// Everyone, as the owner's People screen lists them (`GET /users`).
-    nonisolated(unsafe) static let users: [[String: Any]] = [
-        ["id": "usr_owner", "name": "Shaun", "role": "owner", "created_at": at(-86_400 * 60),
-         "agent": ["id": "agt_marcel", "name": "Marcel",
-                   "look": ["animal": "giraffe", "color": "rose", "personality": "professional"]],
-         "device_count": 2, "quests_this_week": 12],
-        ["id": "usr_emma", "name": "Emma", "role": "member", "created_at": at(-86_400 * 3),
-         "agent": ["id": "agt_pip", "name": "Pip", "look": ["animal": "fox", "color": "sky", "personality": "cozy"]],
-         "device_count": 1, "quests_this_week": 3],
+    /// A second buddy (app API 0.8.0), with the mock hub's seeded look (the contract's `NewAgent` example).
+    nonisolated(unsafe) static let pip: [String: Any] = [
+        "id": "agt_pip", "name": "Pip", "animal": "fox", "main_conversation_id": "cnv_main_pip",
+        "look": ["animal": "fox", "color": "tangerine", "personality": "cheerful"],
+        "state": ["kind": "idle"], "model_brain": "opus", "model_worker": "sonnet",
     ]
+
+    /// `GET /me` with both buddies.
+    static func meWithPip() -> [String: Any] {
+        let marcel = agent.merging(["look": ["animal": "giraffe", "color": "rose", "personality": "professional"]]) { $1 }
+        return me().merging(["agents": [marcel, pip]]) { $1 }
+    }
 
     static func issued(_ code: String = "R4T8WZ", minutesLeft: Double = 10) -> [String: Any] {
         ["code": code, "link": "marcel://pair?hub=http%3A%2F%2Fhub.test%2Fapi&code=\(code)",
@@ -49,9 +51,9 @@ enum Fx {
     static func devices(phonePush: String = "ntfy") -> [[String: Any]] {
         [
             ["id": "dev_phone", "name": "Shaun's iPhone", "created_at": at(-86_400 * 8), "last_seen_at": at(0),
-             "push": phonePush, "current": true],
+             "push": phonePush, "current": true, "agent_id": "agt_marcel"],
             ["id": "dev_ipad", "name": "Kitchen iPad", "created_at": at(-86_400 * 30), "last_seen_at": at(-86_400 * 2),
-             "push": "none", "current": false],
+             "push": "none", "current": false, "agent_id": "agt_marcel"],
         ]
     }
 
@@ -128,7 +130,6 @@ final class FakeHub: ClientTransport, @unchecked Sendable {
         self["GET /usage"] = (200, Fx.json(Fx.usage))
         self["GET /health"] = (200, Fx.json(Fx.health))
         self["GET /approvals"] = (200, Fx.json(Fx.approvals))
-        self["GET /users"] = (200, Fx.json(Fx.users))
         self["GET /projects"] = (200, Fx.json([Fx.project("prj_energy", slug: "energy", name: "Energy contracts")]))
         // By id (app API 0.5): one open approval, one answered (no longer in `GET /approvals`), and messages the
         // phone has cached and one it has not.

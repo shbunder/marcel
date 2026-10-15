@@ -443,7 +443,7 @@ public enum Operations {
             }
         }
     }
-    /// Who this device belongs to, and that person's agents.
+    /// The one person this install belongs to, and their live buddies.
     ///
     /// - Remark: HTTP `GET /me`.
     /// - Remark: Generated from `#/paths//me/get(getMe)`.
@@ -673,6 +673,248 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Choose the buddy this phone shows (B-49). New in 0.8.0.
+    ///
+    /// Any paired phone may change any phone's buddy, its own included. The hub answers the
+    /// updated `Device` and sends the `device.updated` event, so the phone switches even when the
+    /// change came from another phone. That buddy's pushes go to this phone from then on; pushes
+    /// about no buddy (redeploy, backup, usage, logged out) go to every phone.
+    ///
+    ///
+    /// - Remark: HTTP `PATCH /devices/{device_id}`.
+    /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)`.
+    public enum UpdateDevice {
+        public static let id: Swift.String = "updateDevice"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/path/device_id`.
+                public var deviceId: Components.Parameters.DeviceId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - deviceId:
+                public init(deviceId: Components.Parameters.DeviceId) {
+                    self.deviceId = deviceId
+                }
+            }
+            public var path: Operations.UpdateDevice.Input.Path
+            /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateDevice.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateDevice.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateDevice.Input.Headers
+            /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.DeviceUpdate)
+            }
+            public var body: Operations.UpdateDevice.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateDevice.Input.Path,
+                headers: Operations.UpdateDevice.Input.Headers = .init(),
+                body: Operations.UpdateDevice.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/responses/200/content/application\/json`.
+                    case json(Components.Schemas.Device)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.Device {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateDevice.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateDevice.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Saved.
+            ///
+            /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateDevice.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateDevice.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// The request was not valid. `message` says what to change.
+            ///
+            /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// No device token, or a revoked one.
+            ///
+            /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/devices/{device_id}/PATCH/responses/404/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateDevice.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateDevice.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// No such phone (code `device_not_found`), or `agent_id` is no buddy or an archived one
+            /// (code `agent_not_found`). Nothing changed.
+            ///
+            ///
+            /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.UpdateDevice.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.UpdateDevice.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }
@@ -1073,654 +1315,20 @@ public enum Operations {
             }
         }
     }
-    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    /// A one-time code that pairs another phone (B-49). New in 0.8.0.
     ///
-    /// - Remark: HTTP `GET /users`.
-    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
-    public enum ListUsers {
-        public static let id: Swift.String = "listUsers"
-        public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/users/GET/header`.
-            public struct Headers: Sendable, Hashable {
-                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListUsers.AcceptableContentType>]
-                /// Creates a new `Headers`.
-                ///
-                /// - Parameters:
-                ///   - accept:
-                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListUsers.AcceptableContentType>] = .defaultValues()) {
-                    self.accept = accept
-                }
-            }
-            public var headers: Operations.ListUsers.Input.Headers
-            /// Creates a new `Input`.
-            ///
-            /// - Parameters:
-            ///   - headers:
-            public init(headers: Operations.ListUsers.Input.Headers = .init()) {
-                self.headers = headers
-            }
-        }
-        @frozen public enum Output: Sendable, Hashable {
-            public struct Ok: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/GET/responses/200/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/GET/responses/200/content/application\/json`.
-                    case json([Components.Schemas.User])
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: [Components.Schemas.User] {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.ListUsers.Output.Ok.Body
-                /// Creates a new `Ok`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.ListUsers.Output.Ok.Body) {
-                    self.body = body
-                }
-            }
-            /// The owner first, then members by name.
-            ///
-            /// - Remark: Generated from `#/paths//users/get(listUsers)/responses/200`.
-            ///
-            /// HTTP response code: `200 ok`.
-            case ok(Operations.ListUsers.Output.Ok)
-            /// The associated value of the enum case if `self` is `.ok`.
-            ///
-            /// - Throws: An error if `self` is not `.ok`.
-            /// - SeeAlso: `.ok`.
-            public var ok: Operations.ListUsers.Output.Ok {
-                get throws {
-                    switch self {
-                    case let .ok(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "ok",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// No device token, or a revoked one.
-            ///
-            /// - Remark: Generated from `#/paths//users/get(listUsers)/responses/401`.
-            ///
-            /// HTTP response code: `401 unauthorized`.
-            case unauthorized(Components.Responses.Unauthorized)
-            /// The associated value of the enum case if `self` is `.unauthorized`.
-            ///
-            /// - Throws: An error if `self` is not `.unauthorized`.
-            /// - SeeAlso: `.unauthorized`.
-            public var unauthorized: Components.Responses.Unauthorized {
-                get throws {
-                    switch self {
-                    case let .unauthorized(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "unauthorized",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-            /// words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-            ///
-            ///
-            /// - Remark: Generated from `#/paths//users/get(listUsers)/responses/403`.
-            ///
-            /// HTTP response code: `403 forbidden`.
-            case forbidden(Components.Responses.OwnerOnly)
-            /// The associated value of the enum case if `self` is `.forbidden`.
-            ///
-            /// - Throws: An error if `self` is not `.forbidden`.
-            /// - SeeAlso: `.forbidden`.
-            public var forbidden: Components.Responses.OwnerOnly {
-                get throws {
-                    switch self {
-                    case let .forbidden(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "forbidden",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// Undocumented response.
-            ///
-            /// A response with a code that is not documented in the OpenAPI document.
-            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
-        }
-        @frozen public enum AcceptableContentType: AcceptableProtocol {
-            case json
-            case other(Swift.String)
-            public init?(rawValue: Swift.String) {
-                switch rawValue.lowercased() {
-                case "application/json":
-                    self = .json
-                default:
-                    self = .other(rawValue)
-                }
-            }
-            public var rawValue: Swift.String {
-                switch self {
-                case let .other(string):
-                    return string
-                case .json:
-                    return "application/json"
-                }
-            }
-            public static var allCases: [Self] {
-                [
-                    .json
-                ]
-            }
-        }
-    }
-    /// Add a family member and their helper. Owner only. New in 0.7.0.
-    ///
-    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
-    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
-    /// first phone with `POST /users/{user_id}/pairing-codes`.
+    /// Any paired phone may ask. The same kind of code `marcel-hub pair` prints: it works once,
+    /// for 10 minutes, with `POST /pair`. The new phone starts on `agent_id` when given (its link
+    /// carries `&buddy=<agent_id>`), else on the first live buddy. Show `link` as a QR code, or
+    /// share it as a link.
     ///
     ///
-    /// - Remark: HTTP `POST /users`.
-    /// - Remark: Generated from `#/paths//users/post(addUser)`.
-    public enum AddUser {
-        public static let id: Swift.String = "addUser"
-        public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/users/POST/header`.
-            public struct Headers: Sendable, Hashable {
-                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddUser.AcceptableContentType>]
-                /// Creates a new `Headers`.
-                ///
-                /// - Parameters:
-                ///   - accept:
-                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddUser.AcceptableContentType>] = .defaultValues()) {
-                    self.accept = accept
-                }
-            }
-            public var headers: Operations.AddUser.Input.Headers
-            /// - Remark: Generated from `#/paths/users/POST/requestBody`.
-            @frozen public enum Body: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/POST/requestBody/content/application\/json`.
-                case json(Components.Schemas.NewUser)
-            }
-            public var body: Operations.AddUser.Input.Body
-            /// Creates a new `Input`.
-            ///
-            /// - Parameters:
-            ///   - headers:
-            ///   - body:
-            public init(
-                headers: Operations.AddUser.Input.Headers = .init(),
-                body: Operations.AddUser.Input.Body
-            ) {
-                self.headers = headers
-                self.body = body
-            }
-        }
-        @frozen public enum Output: Sendable, Hashable {
-            public struct Created: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/POST/responses/201/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/POST/responses/201/content/application\/json`.
-                    case json(Components.Schemas.User)
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: Components.Schemas.User {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.AddUser.Output.Created.Body
-                /// Creates a new `Created`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.AddUser.Output.Created.Body) {
-                    self.body = body
-                }
-            }
-            /// Added.
-            ///
-            /// - Remark: Generated from `#/paths//users/post(addUser)/responses/201`.
-            ///
-            /// HTTP response code: `201 created`.
-            case created(Operations.AddUser.Output.Created)
-            /// The associated value of the enum case if `self` is `.created`.
-            ///
-            /// - Throws: An error if `self` is not `.created`.
-            /// - SeeAlso: `.created`.
-            public var created: Operations.AddUser.Output.Created {
-                get throws {
-                    switch self {
-                    case let .created(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "created",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// The request was not valid. `message` says what to change.
-            ///
-            /// - Remark: Generated from `#/paths//users/post(addUser)/responses/400`.
-            ///
-            /// HTTP response code: `400 badRequest`.
-            case badRequest(Components.Responses.BadRequest)
-            /// The associated value of the enum case if `self` is `.badRequest`.
-            ///
-            /// - Throws: An error if `self` is not `.badRequest`.
-            /// - SeeAlso: `.badRequest`.
-            public var badRequest: Components.Responses.BadRequest {
-                get throws {
-                    switch self {
-                    case let .badRequest(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "badRequest",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// No device token, or a revoked one.
-            ///
-            /// - Remark: Generated from `#/paths//users/post(addUser)/responses/401`.
-            ///
-            /// HTTP response code: `401 unauthorized`.
-            case unauthorized(Components.Responses.Unauthorized)
-            /// The associated value of the enum case if `self` is `.unauthorized`.
-            ///
-            /// - Throws: An error if `self` is not `.unauthorized`.
-            /// - SeeAlso: `.unauthorized`.
-            public var unauthorized: Components.Responses.Unauthorized {
-                get throws {
-                    switch self {
-                    case let .unauthorized(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "unauthorized",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-            /// words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-            ///
-            ///
-            /// - Remark: Generated from `#/paths//users/post(addUser)/responses/403`.
-            ///
-            /// HTTP response code: `403 forbidden`.
-            case forbidden(Components.Responses.OwnerOnly)
-            /// The associated value of the enum case if `self` is `.forbidden`.
-            ///
-            /// - Throws: An error if `self` is not `.forbidden`.
-            /// - SeeAlso: `.forbidden`.
-            public var forbidden: Components.Responses.OwnerOnly {
-                get throws {
-                    switch self {
-                    case let .forbidden(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "forbidden",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// Undocumented response.
-            ///
-            /// A response with a code that is not documented in the OpenAPI document.
-            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
-        }
-        @frozen public enum AcceptableContentType: AcceptableProtocol {
-            case json
-            case other(Swift.String)
-            public init?(rawValue: Swift.String) {
-                switch rawValue.lowercased() {
-                case "application/json":
-                    self = .json
-                default:
-                    self = .other(rawValue)
-                }
-            }
-            public var rawValue: Swift.String {
-                switch self {
-                case let .other(string):
-                    return string
-                case .json:
-                    return "application/json"
-                }
-            }
-            public static var allCases: [Self] {
-                [
-                    .json
-                ]
-            }
-        }
-    }
-    /// Remove a family member. Owner only. New in 0.7.0.
-    ///
-    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
-    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
-    /// notes stay on the NUC.
-    ///
-    ///
-    /// - Remark: HTTP `DELETE /users/{user_id}`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
-    public enum RemoveUser {
-        public static let id: Swift.String = "removeUser"
-        public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/path`.
-            public struct Path: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/path/user_id`.
-                public var userId: Components.Parameters.UserId
-                /// Creates a new `Path`.
-                ///
-                /// - Parameters:
-                ///   - userId:
-                public init(userId: Components.Parameters.UserId) {
-                    self.userId = userId
-                }
-            }
-            public var path: Operations.RemoveUser.Input.Path
-            /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/header`.
-            public struct Headers: Sendable, Hashable {
-                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RemoveUser.AcceptableContentType>]
-                /// Creates a new `Headers`.
-                ///
-                /// - Parameters:
-                ///   - accept:
-                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.RemoveUser.AcceptableContentType>] = .defaultValues()) {
-                    self.accept = accept
-                }
-            }
-            public var headers: Operations.RemoveUser.Input.Headers
-            /// Creates a new `Input`.
-            ///
-            /// - Parameters:
-            ///   - path:
-            ///   - headers:
-            public init(
-                path: Operations.RemoveUser.Input.Path,
-                headers: Operations.RemoveUser.Input.Headers = .init()
-            ) {
-                self.path = path
-                self.headers = headers
-            }
-        }
-        @frozen public enum Output: Sendable, Hashable {
-            public struct NoContent: Sendable, Hashable {
-                /// Creates a new `NoContent`.
-                public init() {}
-            }
-            /// Removed.
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/204`.
-            ///
-            /// HTTP response code: `204 noContent`.
-            case noContent(Operations.RemoveUser.Output.NoContent)
-            /// Removed.
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/204`.
-            ///
-            /// HTTP response code: `204 noContent`.
-            public static var noContent: Self {
-                .noContent(.init())
-            }
-            /// The associated value of the enum case if `self` is `.noContent`.
-            ///
-            /// - Throws: An error if `self` is not `.noContent`.
-            /// - SeeAlso: `.noContent`.
-            public var noContent: Operations.RemoveUser.Output.NoContent {
-                get throws {
-                    switch self {
-                    case let .noContent(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "noContent",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// No device token, or a revoked one.
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/401`.
-            ///
-            /// HTTP response code: `401 unauthorized`.
-            case unauthorized(Components.Responses.Unauthorized)
-            /// The associated value of the enum case if `self` is `.unauthorized`.
-            ///
-            /// - Throws: An error if `self` is not `.unauthorized`.
-            /// - SeeAlso: `.unauthorized`.
-            public var unauthorized: Components.Responses.Unauthorized {
-                get throws {
-                    switch self {
-                    case let .unauthorized(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "unauthorized",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-            /// words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-            ///
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/403`.
-            ///
-            /// HTTP response code: `403 forbidden`.
-            case forbidden(Components.Responses.OwnerOnly)
-            /// The associated value of the enum case if `self` is `.forbidden`.
-            ///
-            /// - Throws: An error if `self` is not `.forbidden`.
-            /// - SeeAlso: `.forbidden`.
-            public var forbidden: Components.Responses.OwnerOnly {
-                get throws {
-                    switch self {
-                    case let .forbidden(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "forbidden",
-                            response: self
-                        )
-                    }
-                }
-            }
-            public struct NotFound: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/responses/404/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/responses/404/content/application\/json`.
-                    case json(Components.Schemas._Error)
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: Components.Schemas._Error {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.RemoveUser.Output.NotFound.Body
-                /// Creates a new `NotFound`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.RemoveUser.Output.NotFound.Body) {
-                    self.body = body
-                }
-            }
-            /// No such person (code `user_not_found`).
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/404`.
-            ///
-            /// HTTP response code: `404 notFound`.
-            case notFound(Operations.RemoveUser.Output.NotFound)
-            /// The associated value of the enum case if `self` is `.notFound`.
-            ///
-            /// - Throws: An error if `self` is not `.notFound`.
-            /// - SeeAlso: `.notFound`.
-            public var notFound: Operations.RemoveUser.Output.NotFound {
-                get throws {
-                    switch self {
-                    case let .notFound(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "notFound",
-                            response: self
-                        )
-                    }
-                }
-            }
-            public struct Conflict: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/responses/409/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/{user_id}/DELETE/responses/409/content/application\/json`.
-                    case json(Components.Schemas._Error)
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: Components.Schemas._Error {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.RemoveUser.Output.Conflict.Body
-                /// Creates a new `Conflict`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.RemoveUser.Output.Conflict.Body) {
-                    self.body = body
-                }
-            }
-            /// `cannot_remove_owner`: the owner cannot be removed. Nothing changed.
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)/responses/409`.
-            ///
-            /// HTTP response code: `409 conflict`.
-            case conflict(Operations.RemoveUser.Output.Conflict)
-            /// The associated value of the enum case if `self` is `.conflict`.
-            ///
-            /// - Throws: An error if `self` is not `.conflict`.
-            /// - SeeAlso: `.conflict`.
-            public var conflict: Operations.RemoveUser.Output.Conflict {
-                get throws {
-                    switch self {
-                    case let .conflict(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "conflict",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// Undocumented response.
-            ///
-            /// A response with a code that is not documented in the OpenAPI document.
-            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
-        }
-        @frozen public enum AcceptableContentType: AcceptableProtocol {
-            case json
-            case other(Swift.String)
-            public init?(rawValue: Swift.String) {
-                switch rawValue.lowercased() {
-                case "application/json":
-                    self = .json
-                default:
-                    self = .other(rawValue)
-                }
-            }
-            public var rawValue: Swift.String {
-                switch self {
-                case let .other(string):
-                    return string
-                case .json:
-                    return "application/json"
-                }
-            }
-            public static var allCases: [Self] {
-                [
-                    .json
-                ]
-            }
-        }
-    }
-    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
-    ///
-    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
-    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
-    /// it as a link.
-    ///
-    ///
-    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
+    /// - Remark: HTTP `POST /pairing-codes`.
+    /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)`.
     public enum CreatePairingCode {
         public static let id: Swift.String = "createPairingCode"
         public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/path`.
-            public struct Path: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/path/user_id`.
-                public var userId: Components.Parameters.UserId
-                /// Creates a new `Path`.
-                ///
-                /// - Parameters:
-                ///   - userId:
-                public init(userId: Components.Parameters.UserId) {
-                    self.userId = userId
-                }
-            }
-            public var path: Operations.CreatePairingCode.Input.Path
-            /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/header`.
+            /// - Remark: Generated from `#/paths/pairing-codes/POST/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreatePairingCode.AcceptableContentType>]
                 /// Creates a new `Headers`.
@@ -1732,24 +1340,30 @@ public enum Operations {
                 }
             }
             public var headers: Operations.CreatePairingCode.Input.Headers
+            /// - Remark: Generated from `#/paths/pairing-codes/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/pairing-codes/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.NewPairingCode)
+            }
+            public var body: Operations.CreatePairingCode.Input.Body?
             /// Creates a new `Input`.
             ///
             /// - Parameters:
-            ///   - path:
             ///   - headers:
+            ///   - body:
             public init(
-                path: Operations.CreatePairingCode.Input.Path,
-                headers: Operations.CreatePairingCode.Input.Headers = .init()
+                headers: Operations.CreatePairingCode.Input.Headers = .init(),
+                body: Operations.CreatePairingCode.Input.Body? = nil
             ) {
-                self.path = path
                 self.headers = headers
+                self.body = body
             }
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Created: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/responses/201/content`.
+                /// - Remark: Generated from `#/paths/pairing-codes/POST/responses/201/content`.
                 @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/responses/201/content/application\/json`.
+                    /// - Remark: Generated from `#/paths/pairing-codes/POST/responses/201/content/application\/json`.
                     case json(Components.Schemas.IssuedPairingCode)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
@@ -1776,7 +1390,7 @@ public enum Operations {
             }
             /// A fresh code.
             ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)/responses/201`.
+            /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)/responses/201`.
             ///
             /// HTTP response code: `201 created`.
             case created(Operations.CreatePairingCode.Output.Created)
@@ -1797,9 +1411,32 @@ public enum Operations {
                     }
                 }
             }
+            /// The request was not valid. `message` says what to change.
+            ///
+            /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
             /// No device token, or a revoked one.
             ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)/responses/401`.
+            /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)/responses/401`.
             ///
             /// HTTP response code: `401 unauthorized`.
             case unauthorized(Components.Responses.Unauthorized)
@@ -1820,35 +1457,10 @@ public enum Operations {
                     }
                 }
             }
-            /// `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-            /// words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-            ///
-            ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)/responses/403`.
-            ///
-            /// HTTP response code: `403 forbidden`.
-            case forbidden(Components.Responses.OwnerOnly)
-            /// The associated value of the enum case if `self` is `.forbidden`.
-            ///
-            /// - Throws: An error if `self` is not `.forbidden`.
-            /// - SeeAlso: `.forbidden`.
-            public var forbidden: Components.Responses.OwnerOnly {
-                get throws {
-                    switch self {
-                    case let .forbidden(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "forbidden",
-                            response: self
-                        )
-                    }
-                }
-            }
             public struct NotFound: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/responses/404/content`.
+                /// - Remark: Generated from `#/paths/pairing-codes/POST/responses/404/content`.
                 @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/users/{user_id}/pairing-codes/POST/responses/404/content/application\/json`.
+                    /// - Remark: Generated from `#/paths/pairing-codes/POST/responses/404/content/application\/json`.
                     case json(Components.Schemas._Error)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
@@ -1873,9 +1485,9 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// No such person (code `user_not_found`).
+            /// `agent_id` is no buddy or an archived one (code `agent_not_found`).
             ///
-            /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)/responses/404`.
+            /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)/responses/404`.
             ///
             /// HTTP response code: `404 notFound`.
             case notFound(Operations.CreatePairingCode.Output.NotFound)
@@ -1927,9 +1539,181 @@ public enum Operations {
             }
         }
     }
-    /// One agent, with its current state for the avatar.
+    /// Add a buddy (B-49). New in 0.8.0.
     ///
-    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
+    /// A new buddy with its own brain, main conversation and Inbox, as the first one has. Without
+    /// `look` the hub picks one from the name (the same name always gets the same look). Every
+    /// phone hears of it through `agent.updated`; no phone switches to it by itself.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents`.
+    /// - Remark: Generated from `#/paths//agents/post(createAgent)`.
+    public enum CreateAgent {
+        public static let id: Swift.String = "createAgent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/agents/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateAgent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.CreateAgent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.CreateAgent.Input.Headers
+            /// - Remark: Generated from `#/paths/agents/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.NewAgent)
+            }
+            public var body: Operations.CreateAgent.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.CreateAgent.Input.Headers = .init(),
+                body: Operations.CreateAgent.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/POST/responses/201/content/application\/json`.
+                    case json(Components.Schemas.Agent)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.Agent {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.CreateAgent.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.CreateAgent.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Added.
+            ///
+            /// - Remark: Generated from `#/paths//agents/post(createAgent)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.CreateAgent.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.CreateAgent.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// The request was not valid. `message` says what to change.
+            ///
+            /// - Remark: Generated from `#/paths//agents/post(createAgent)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Components.Responses.BadRequest)
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Components.Responses.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// No device token, or a revoked one.
+            ///
+            /// - Remark: Generated from `#/paths//agents/post(createAgent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// One buddy, with its current state for the avatar.
+    ///
+    /// Any buddy of the one person, an archived one too (`archived_at`); an unknown id answers 404.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
@@ -2103,9 +1887,9 @@ public enum Operations {
             }
         }
     }
-    /// Rename an agent, change its look, or finish onboarding.
+    /// Rename a buddy, change its look, or finish onboarding.
     ///
-    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// Any buddy of the one person; an unknown id answers 404. A change sends the
     /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
     /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
     /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
@@ -2279,6 +2063,240 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Archive a buddy (B-49). New in 0.8.0.
+    ///
+    /// The buddy's brain stops, and its schedules and digests with it; running quests finish on
+    /// their own. Its chat, quests, items and memory stay readable (`GET /agents/{agent_id}` shows
+    /// `archived_at`), and it leaves `Me.agents`. Phones that showed it switch to the first live
+    /// buddy (each gets `device.updated`). Archiving an archived buddy changes nothing and answers
+    /// it again. Sends `agent.updated`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents/{agent_id}/archive`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)`.
+    public enum ArchiveAgent {
+        public static let id: Swift.String = "archiveAgent"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/path/agent_id`.
+                public var agentId: Components.Parameters.AgentId
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - agentId:
+                public init(agentId: Components.Parameters.AgentId) {
+                    self.agentId = agentId
+                }
+            }
+            public var path: Operations.ArchiveAgent.Input.Path
+            /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ArchiveAgent.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ArchiveAgent.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.ArchiveAgent.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.ArchiveAgent.Input.Path,
+                headers: Operations.ArchiveAgent.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.Agent)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.Agent {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ArchiveAgent.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ArchiveAgent.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Archived.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.ArchiveAgent.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.ArchiveAgent.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// No device token, or a revoked one.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Components.Responses.Unauthorized)
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Components.Responses.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Nothing with that id.
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Components.Responses.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Components.Responses.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/agents/{agent_id}/archive/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas._Error)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas._Error {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.ArchiveAgent.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.ArchiveAgent.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// `last_buddy`: this is the only live buddy, and an install always keeps one. Nothing
+            /// changed.
+            ///
+            ///
+            /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.ArchiveAgent.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.ArchiveAgent.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
@@ -3251,7 +3269,7 @@ public enum Operations {
     }
     /// The main conversation and every side thread of an agent.
     ///
-    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
+    /// A buddy that does not exist gives an empty list.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -3632,8 +3650,8 @@ public enum Operations {
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
-    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
-    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// With `mentions` (new in 0.7.0, B-42), each one must be an existing quest, project or
+    /// item (any buddy's), or the message is refused with 404 `mention_not_found` and nothing is stored. The
     /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
     /// `project` mention also sets the message's `project_id` when the message has none.
     ///
@@ -4045,7 +4063,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// No such message, or one in another person's conversation (code `message_not_found`).
+            /// No such message (code `message_not_found`).
             ///
             /// - Remark: Generated from `#/paths//messages/{message_id}/get(getMessage)/responses/404`.
             ///
@@ -4537,7 +4555,7 @@ public enum Operations {
     }
     /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
     ///
-    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// Quests (`task`), projects and items (`artifact`) of every buddy whose title contains `q`
     /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
     /// `task` and `artifact`, `#` for `project`.
     ///
@@ -6837,8 +6855,8 @@ public enum Operations {
     }
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
-    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
-    /// 403 `owner_only` (new in 0.7.0).
+    /// Any paired phone may answer any card, a self-change card (`tool: self_change`, B-24) too
+    /// (0.8.0: the owner-only rule went with the people model, ADR-013).
     ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
@@ -6986,31 +7004,6 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "unauthorized",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// `owner_only`: only the owner may do this (new in 0.7.0). The `message` says so in plain
-            /// words, e.g. "Only Shaun can add people. Ask Shaun to do it."
-            ///
-            ///
-            /// - Remark: Generated from `#/paths//approvals/{approval_id}/post(answerApproval)/responses/403`.
-            ///
-            /// HTTP response code: `403 forbidden`.
-            case forbidden(Components.Responses.OwnerOnly)
-            /// The associated value of the enum case if `self` is `.forbidden`.
-            ///
-            /// - Throws: An error if `self` is not `.forbidden`.
-            /// - SeeAlso: `.forbidden`.
-            public var forbidden: Components.Responses.OwnerOnly {
-                get throws {
-                    switch self {
-                    case let .forbidden(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "forbidden",
                             response: self
                         )
                     }

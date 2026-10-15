@@ -22,12 +22,12 @@ extension Components {
             /// `approval_not_found`; tasks:
             /// `task_not_found`, `task_not_finished`, `task_finished`, `runner_unreachable` (503);
             /// projects: `slug_taken`, `project_archived`, `project_is_inbox`, `project_busy`,
-            /// `agent_not_found`; agents: `rollover_running` (409); artifacts and memory:
+            /// `agent_not_found`; agents: `rollover_running`, `last_buddy` (409); artifacts and memory:
             /// `artifact_not_found`, `artifact_is_board`, `invalid_memory_path`,
             /// `memory_file_not_found`, `memory_file_too_big`, `memory_unavailable` (503); schedules:
-            /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); people
-            /// (0.7.0): `owner_only` (403), `user_not_found` (404), `cannot_remove_owner` (409);
-            /// mentions (0.7.0): `mention_not_found` (404). New codes may be added; treat an unknown
+            /// `schedule_not_found` (404), `schedule_builtin` (409); usage: `no_reading` (503); mentions
+            /// (0.7.0): `mention_not_found` (404). 0.8.0 removed `owner_only`, `user_not_found` and
+            /// `cannot_remove_owner` with the people model, and added `last_buddy`. New codes may be added; treat an unknown
             /// code by its HTTP status.
             ///
             ///
@@ -119,6 +119,21 @@ extension Components {
             public var runner: Components.Schemas.Health.RunnerPayload
             /// - Remark: Generated from `#/components/schemas/Health/brain_alive`.
             public var brainAlive: Swift.Bool?
+            /// The kind of computer the hub runs on, so the app can say "Your Mac is asleep" (B-51).
+            /// New in 0.8.0; absent from an older hub, and the app then says "your computer".
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Health/os`.
+            @frozen public enum OsPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case macos = "macos"
+                case linux = "linux"
+            }
+            /// The kind of computer the hub runs on, so the app can say "Your Mac is asleep" (B-51).
+            /// New in 0.8.0; absent from an older hub, and the app then says "your computer".
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Health/os`.
+            public var os: Components.Schemas.Health.OsPayload?
             /// Creates a new `Health`.
             ///
             /// - Parameters:
@@ -126,22 +141,26 @@ extension Components {
             ///   - version:
             ///   - runner:
             ///   - brainAlive:
+            ///   - os: The kind of computer the hub runs on, so the app can say "Your Mac is asleep" (B-51).
             public init(
                 ok: Swift.Bool,
                 version: Swift.String,
                 runner: Components.Schemas.Health.RunnerPayload,
-                brainAlive: Swift.Bool? = nil
+                brainAlive: Swift.Bool? = nil,
+                os: Components.Schemas.Health.OsPayload? = nil
             ) {
                 self.ok = ok
                 self.version = version
                 self.runner = runner
                 self.brainAlive = brainAlive
+                self.os = os
             }
             public enum CodingKeys: String, CodingKey {
                 case ok
                 case version
                 case runner
                 case brainAlive = "brain_alive"
+                case os
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -161,11 +180,16 @@ extension Components {
                     Swift.Bool.self,
                     forKey: .brainAlive
                 )
+                self.os = try container.decodeIfPresent(
+                    Components.Schemas.Health.OsPayload.self,
+                    forKey: .os
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "ok",
                     "version",
                     "runner",
-                    "brain_alive"
+                    "brain_alive",
+                    "os"
                 ])
             }
         }
@@ -264,16 +288,16 @@ extension Components {
             public var userId: Swift.String
             /// - Remark: Generated from `#/components/schemas/Me/name`.
             public var name: Swift.String
-            /// New in 0.7.0. The app shows People only to the owner.
-            ///
-            /// - Remark: Generated from `#/components/schemas/Me/role`.
-            public var role: Components.Schemas.UserRole?
             /// - Remark: Generated from `#/components/schemas/Me/device_id`.
             public var deviceId: Swift.String
+            /// Every live buddy, the first one first. Archived buddies are not listed (0.8.0).
+            ///
             /// - Remark: Generated from `#/components/schemas/Me/agents`.
             public var agents: [Components.Schemas.Agent]
-            /// Which push backends the hub can use. Register APNs only when `apns` is true;
-            /// otherwise subscribe to an ntfy topic on `ntfy_server` and register that (B-18).
+            /// Which push backends the hub can use. Prefer the relay when `relay` is true (register
+            /// with the relay, then `PUT /devices/{device_id}/push` with `kind: relay`); else APNs when
+            /// `apns` is true; else subscribe to an ntfy topic on `ntfy_server` and register that
+            /// (B-18).
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Me/push`.
@@ -284,25 +308,35 @@ extension Components {
                 public var ntfy: Swift.Bool
                 /// - Remark: Generated from `#/components/schemas/Me/push/ntfy_server`.
                 public var ntfyServer: Swift.String?
+                /// The hub can push through the push relay (`push-relay.yaml`), sealing each
+                /// notification for the phone (`SealedPush`). New in 0.8.0; absent reads as false.
+                ///
+                ///
+                /// - Remark: Generated from `#/components/schemas/Me/push/relay`.
+                public var relay: Swift.Bool?
                 /// Creates a new `PushPayload`.
                 ///
                 /// - Parameters:
                 ///   - apns:
                 ///   - ntfy:
                 ///   - ntfyServer:
+                ///   - relay: The hub can push through the push relay (`push-relay.yaml`), sealing each
                 public init(
                     apns: Swift.Bool,
                     ntfy: Swift.Bool,
-                    ntfyServer: Swift.String? = nil
+                    ntfyServer: Swift.String? = nil,
+                    relay: Swift.Bool? = nil
                 ) {
                     self.apns = apns
                     self.ntfy = ntfy
                     self.ntfyServer = ntfyServer
+                    self.relay = relay
                 }
                 public enum CodingKeys: String, CodingKey {
                     case apns
                     case ntfy
                     case ntfyServer = "ntfy_server"
+                    case relay
                 }
                 public init(from decoder: any Swift.Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -318,15 +352,22 @@ extension Components {
                         Swift.String.self,
                         forKey: .ntfyServer
                     )
+                    self.relay = try container.decodeIfPresent(
+                        Swift.Bool.self,
+                        forKey: .relay
+                    )
                     try decoder.ensureNoAdditionalProperties(knownKeys: [
                         "apns",
                         "ntfy",
-                        "ntfy_server"
+                        "ntfy_server",
+                        "relay"
                     ])
                 }
             }
-            /// Which push backends the hub can use. Register APNs only when `apns` is true;
-            /// otherwise subscribe to an ntfy topic on `ntfy_server` and register that (B-18).
+            /// Which push backends the hub can use. Prefer the relay when `relay` is true (register
+            /// with the relay, then `PUT /devices/{device_id}/push` with `kind: relay`); else APNs when
+            /// `apns` is true; else subscribe to an ntfy topic on `ntfy_server` and register that
+            /// (B-18).
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Me/push`.
@@ -336,21 +377,18 @@ extension Components {
             /// - Parameters:
             ///   - userId:
             ///   - name:
-            ///   - role: New in 0.7.0. The app shows People only to the owner.
             ///   - deviceId:
-            ///   - agents:
-            ///   - push: Which push backends the hub can use. Register APNs only when `apns` is true;
+            ///   - agents: Every live buddy, the first one first. Archived buddies are not listed (0.8.0).
+            ///   - push: Which push backends the hub can use. Prefer the relay when `relay` is true (register
             public init(
                 userId: Swift.String,
                 name: Swift.String,
-                role: Components.Schemas.UserRole? = nil,
                 deviceId: Swift.String,
                 agents: [Components.Schemas.Agent],
                 push: Components.Schemas.Me.PushPayload
             ) {
                 self.userId = userId
                 self.name = name
-                self.role = role
                 self.deviceId = deviceId
                 self.agents = agents
                 self.push = push
@@ -358,7 +396,6 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case userId = "user_id"
                 case name
-                case role
                 case deviceId = "device_id"
                 case agents
                 case push
@@ -372,10 +409,6 @@ extension Components {
                 self.name = try container.decode(
                     Swift.String.self,
                     forKey: .name
-                )
-                self.role = try container.decodeIfPresent(
-                    Components.Schemas.UserRole.self,
-                    forKey: .role
                 )
                 self.deviceId = try container.decode(
                     Swift.String.self,
@@ -392,247 +425,38 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "user_id",
                     "name",
-                    "role",
                     "device_id",
                     "agents",
                     "push"
                 ])
             }
         }
-        /// `owner`: runs Marcel at home and whose Claude login the NUC uses (B-37). `member`: a family member the owner added.
+        /// The body of `POST /pairing-codes`; may be left out. New in 0.8.0.
         ///
-        /// - Remark: Generated from `#/components/schemas/UserRole`.
-        @frozen public enum UserRole: String, Codable, Hashable, Sendable, CaseIterable {
-            case owner = "owner"
-            case member = "member"
-        }
-        /// A person, as the owner's People screen shows them (B-37, B-40). New in 0.7.0.
-        ///
-        /// - Remark: Generated from `#/components/schemas/User`.
-        public struct User: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/User/id`.
-            public var id: Swift.String
-            /// - Remark: Generated from `#/components/schemas/User/name`.
-            public var name: Swift.String
-            /// - Remark: Generated from `#/components/schemas/User/role`.
-            public var role: Components.Schemas.UserRole
-            /// - Remark: Generated from `#/components/schemas/User/created_at`.
-            public var createdAt: Foundation.Date
-            /// The person's helper. Absent only while it is still being set up.
+        /// - Remark: Generated from `#/components/schemas/NewPairingCode`.
+        public struct NewPairingCode: Codable, Hashable, Sendable {
+            /// The buddy the new phone starts on. Absent means the first live buddy.
             ///
-            /// - Remark: Generated from `#/components/schemas/User/agent`.
-            public struct AgentPayload: Codable, Hashable, Sendable {
-                /// - Remark: Generated from `#/components/schemas/User/agent/id`.
-                public var id: Swift.String
-                /// - Remark: Generated from `#/components/schemas/User/agent/name`.
-                public var name: Swift.String
-                /// - Remark: Generated from `#/components/schemas/User/agent/look`.
-                public var look: Components.Schemas.Look?
-                /// Creates a new `AgentPayload`.
-                ///
-                /// - Parameters:
-                ///   - id:
-                ///   - name:
-                ///   - look:
-                public init(
-                    id: Swift.String,
-                    name: Swift.String,
-                    look: Components.Schemas.Look? = nil
-                ) {
-                    self.id = id
-                    self.name = name
-                    self.look = look
-                }
-                public enum CodingKeys: String, CodingKey {
-                    case id
-                    case name
-                    case look
-                }
-                public init(from decoder: any Swift.Decoder) throws {
-                    let container = try decoder.container(keyedBy: CodingKeys.self)
-                    self.id = try container.decode(
-                        Swift.String.self,
-                        forKey: .id
-                    )
-                    self.name = try container.decode(
-                        Swift.String.self,
-                        forKey: .name
-                    )
-                    self.look = try container.decodeIfPresent(
-                        Components.Schemas.Look.self,
-                        forKey: .look
-                    )
-                    try decoder.ensureNoAdditionalProperties(knownKeys: [
-                        "id",
-                        "name",
-                        "look"
-                    ])
-                }
-            }
-            /// The person's helper. Absent only while it is still being set up.
-            ///
-            /// - Remark: Generated from `#/components/schemas/User/agent`.
-            public var agent: Components.Schemas.User.AgentPayload?
-            /// Phones paired to this person and not revoked.
-            ///
-            /// - Remark: Generated from `#/components/schemas/User/device_count`.
-            public var deviceCount: Swift.Int
-            /// Quests their helper started in the last 7 days.
-            ///
-            /// - Remark: Generated from `#/components/schemas/User/quests_this_week`.
-            public var questsThisWeek: Swift.Int
-            /// Creates a new `User`.
+            /// - Remark: Generated from `#/components/schemas/NewPairingCode/agent_id`.
+            public var agentId: Swift.String?
+            /// Creates a new `NewPairingCode`.
             ///
             /// - Parameters:
-            ///   - id:
-            ///   - name:
-            ///   - role:
-            ///   - createdAt:
-            ///   - agent: The person's helper. Absent only while it is still being set up.
-            ///   - deviceCount: Phones paired to this person and not revoked.
-            ///   - questsThisWeek: Quests their helper started in the last 7 days.
-            public init(
-                id: Swift.String,
-                name: Swift.String,
-                role: Components.Schemas.UserRole,
-                createdAt: Foundation.Date,
-                agent: Components.Schemas.User.AgentPayload? = nil,
-                deviceCount: Swift.Int,
-                questsThisWeek: Swift.Int
-            ) {
-                self.id = id
-                self.name = name
-                self.role = role
-                self.createdAt = createdAt
-                self.agent = agent
-                self.deviceCount = deviceCount
-                self.questsThisWeek = questsThisWeek
+            ///   - agentId: The buddy the new phone starts on. Absent means the first live buddy.
+            public init(agentId: Swift.String? = nil) {
+                self.agentId = agentId
             }
             public enum CodingKeys: String, CodingKey {
-                case id
-                case name
-                case role
-                case createdAt = "created_at"
-                case agent
-                case deviceCount = "device_count"
-                case questsThisWeek = "quests_this_week"
+                case agentId = "agent_id"
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.id = try container.decode(
+                self.agentId = try container.decodeIfPresent(
                     Swift.String.self,
-                    forKey: .id
-                )
-                self.name = try container.decode(
-                    Swift.String.self,
-                    forKey: .name
-                )
-                self.role = try container.decode(
-                    Components.Schemas.UserRole.self,
-                    forKey: .role
-                )
-                self.createdAt = try container.decode(
-                    Foundation.Date.self,
-                    forKey: .createdAt
-                )
-                self.agent = try container.decodeIfPresent(
-                    Components.Schemas.User.AgentPayload.self,
-                    forKey: .agent
-                )
-                self.deviceCount = try container.decode(
-                    Swift.Int.self,
-                    forKey: .deviceCount
-                )
-                self.questsThisWeek = try container.decode(
-                    Swift.Int.self,
-                    forKey: .questsThisWeek
+                    forKey: .agentId
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "id",
-                    "name",
-                    "role",
-                    "created_at",
-                    "agent",
-                    "device_count",
-                    "quests_this_week"
-                ])
-            }
-        }
-        /// - Remark: Generated from `#/components/schemas/NewUser`.
-        public struct NewUser: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/NewUser/name`.
-            public var name: Swift.String
-            /// - Remark: Generated from `#/components/schemas/NewUser/agent`.
-            public struct AgentPayload: Codable, Hashable, Sendable {
-                /// - Remark: Generated from `#/components/schemas/NewUser/agent/name`.
-                public var name: Swift.String
-                /// Picked from the agent's name when absent.
-                ///
-                /// - Remark: Generated from `#/components/schemas/NewUser/agent/look`.
-                public var look: Components.Schemas.NewLook?
-                /// Creates a new `AgentPayload`.
-                ///
-                /// - Parameters:
-                ///   - name:
-                ///   - look: Picked from the agent's name when absent.
-                public init(
-                    name: Swift.String,
-                    look: Components.Schemas.NewLook? = nil
-                ) {
-                    self.name = name
-                    self.look = look
-                }
-                public enum CodingKeys: String, CodingKey {
-                    case name
-                    case look
-                }
-                public init(from decoder: any Swift.Decoder) throws {
-                    let container = try decoder.container(keyedBy: CodingKeys.self)
-                    self.name = try container.decode(
-                        Swift.String.self,
-                        forKey: .name
-                    )
-                    self.look = try container.decodeIfPresent(
-                        Components.Schemas.NewLook.self,
-                        forKey: .look
-                    )
-                    try decoder.ensureNoAdditionalProperties(knownKeys: [
-                        "name",
-                        "look"
-                    ])
-                }
-            }
-            /// - Remark: Generated from `#/components/schemas/NewUser/agent`.
-            public var agent: Components.Schemas.NewUser.AgentPayload
-            /// Creates a new `NewUser`.
-            ///
-            /// - Parameters:
-            ///   - name:
-            ///   - agent:
-            public init(
-                name: Swift.String,
-                agent: Components.Schemas.NewUser.AgentPayload
-            ) {
-                self.name = name
-                self.agent = agent
-            }
-            public enum CodingKeys: String, CodingKey {
-                case name
-                case agent
-            }
-            public init(from decoder: any Swift.Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.name = try container.decode(
-                    Swift.String.self,
-                    forKey: .name
-                )
-                self.agent = try container.decode(
-                    Components.Schemas.NewUser.AgentPayload.self,
-                    forKey: .agent
-                )
-                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "name",
-                    "agent"
+                    "agent_id"
                 ])
             }
         }
@@ -691,11 +515,22 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/PushTarget`.
         public struct PushTarget: Codable, Hashable, Sendable {
+            /// `relay` (new in 0.8.0): the phone registered with the push relay (`push-relay.yaml`
+            /// `POST /v1/register`) and gives its hub what the hub needs to push through it. The
+            /// preferred kind when `Me.push.relay` is true.
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/PushTarget/kind`.
             @frozen public enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case apns = "apns"
                 case ntfy = "ntfy"
+                case relay = "relay"
             }
+            /// `relay` (new in 0.8.0): the phone registered with the push relay (`push-relay.yaml`
+            /// `POST /v1/register`) and gives its hub what the hub needs to push through it. The
+            /// preferred kind when `Me.push.relay` is true.
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/PushTarget/kind`.
             public var kind: Components.Schemas.PushTarget.KindPayload
             /// Required when `kind` is `apns`. The device token from APNs, hex-encoded (64 to 200 hex
@@ -709,25 +544,64 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/PushTarget/ntfy_topic`.
             public var ntfyTopic: Swift.String?
+            /// Required when `kind` is `relay`. The relay's base URL, from the app's build; the hub
+            /// posts to `<relay_url>/v1/push`.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/PushTarget/relay_url`.
+            public var relayUrl: Swift.String?
+            /// Required when `kind` is `relay`. The phone's handle at the relay (`Registered.handle`).
+            ///
+            /// - Remark: Generated from `#/components/schemas/PushTarget/handle`.
+            public var handle: Swift.String?
+            /// Required when `kind` is `relay`. The bearer secret for this handle at the relay
+            /// (`Registered.send_secret`). The hub stores it and never shows it again.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/PushTarget/send_secret`.
+            public var sendSecret: Swift.String?
+            /// Required when `kind` is `relay`. The phone's X25519 public key, 32 bytes as base64url
+            /// without padding. The phone made the key pair and keeps the private half in its
+            /// Keychain; the hub seals every push for this key (`SealedPush`). The relay never gets it.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/PushTarget/device_key`.
+            public var deviceKey: Swift.String?
             /// Creates a new `PushTarget`.
             ///
             /// - Parameters:
-            ///   - kind:
+            ///   - kind: `relay` (new in 0.8.0): the phone registered with the push relay (`push-relay.yaml`
             ///   - apnsToken: Required when `kind` is `apns`. The device token from APNs, hex-encoded (64 to 200 hex
             ///   - ntfyTopic: Required when `kind` is `ntfy`.
+            ///   - relayUrl: Required when `kind` is `relay`. The relay's base URL, from the app's build; the hub
+            ///   - handle: Required when `kind` is `relay`. The phone's handle at the relay (`Registered.handle`).
+            ///   - sendSecret: Required when `kind` is `relay`. The bearer secret for this handle at the relay
+            ///   - deviceKey: Required when `kind` is `relay`. The phone's X25519 public key, 32 bytes as base64url
             public init(
                 kind: Components.Schemas.PushTarget.KindPayload,
                 apnsToken: Swift.String? = nil,
-                ntfyTopic: Swift.String? = nil
+                ntfyTopic: Swift.String? = nil,
+                relayUrl: Swift.String? = nil,
+                handle: Swift.String? = nil,
+                sendSecret: Swift.String? = nil,
+                deviceKey: Swift.String? = nil
             ) {
                 self.kind = kind
                 self.apnsToken = apnsToken
                 self.ntfyTopic = ntfyTopic
+                self.relayUrl = relayUrl
+                self.handle = handle
+                self.sendSecret = sendSecret
+                self.deviceKey = deviceKey
             }
             public enum CodingKeys: String, CodingKey {
                 case kind
                 case apnsToken = "apns_token"
                 case ntfyTopic = "ntfy_topic"
+                case relayUrl = "relay_url"
+                case handle
+                case sendSecret = "send_secret"
+                case deviceKey = "device_key"
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -743,10 +617,30 @@ extension Components {
                     Swift.String.self,
                     forKey: .ntfyTopic
                 )
+                self.relayUrl = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .relayUrl
+                )
+                self.handle = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .handle
+                )
+                self.sendSecret = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sendSecret
+                )
+                self.deviceKey = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .deviceKey
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "kind",
                     "apns_token",
-                    "ntfy_topic"
+                    "ntfy_topic",
+                    "relay_url",
+                    "handle",
+                    "send_secret",
+                    "device_key"
                 ])
             }
         }
@@ -760,12 +654,29 @@ extension Components {
             public var createdAt: Foundation.Date
             /// - Remark: Generated from `#/components/schemas/Device/last_seen_at`.
             public var lastSeenAt: Foundation.Date?
+            /// The buddy this phone shows (B-49), always a live one. Changed with
+            /// `PATCH /devices/{device_id}`; set at pairing (`NewPairingCode.agent_id`). New in 0.8.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Device/agent_id`.
+            public var agentId: Swift.String
+            /// The kind of push target registered (`PushTarget.kind`). `none` also after the hub
+            /// cleared a relay target the relay answered 410 for (the phone's APNs token is gone): the
+            /// app registers again when it sees `none` (0.8.0).
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/Device/push`.
             @frozen public enum PushPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case apns = "apns"
                 case ntfy = "ntfy"
+                case relay = "relay"
                 case none = "none"
             }
+            /// The kind of push target registered (`PushTarget.kind`). `none` also after the hub
+            /// cleared a relay target the relay answered 410 for (the phone's APNs token is gone): the
+            /// app registers again when it sees `none` (0.8.0).
+            ///
+            ///
             /// - Remark: Generated from `#/components/schemas/Device/push`.
             public var push: Components.Schemas.Device.PushPayload
             /// True for the device making this request.
@@ -779,13 +690,15 @@ extension Components {
             ///   - name:
             ///   - createdAt:
             ///   - lastSeenAt:
-            ///   - push:
+            ///   - agentId: The buddy this phone shows (B-49), always a live one. Changed with
+            ///   - push: The kind of push target registered (`PushTarget.kind`). `none` also after the hub
             ///   - current: True for the device making this request.
             public init(
                 id: Swift.String,
                 name: Swift.String,
                 createdAt: Foundation.Date,
                 lastSeenAt: Foundation.Date? = nil,
+                agentId: Swift.String,
                 push: Components.Schemas.Device.PushPayload,
                 current: Swift.Bool? = nil
             ) {
@@ -793,6 +706,7 @@ extension Components {
                 self.name = name
                 self.createdAt = createdAt
                 self.lastSeenAt = lastSeenAt
+                self.agentId = agentId
                 self.push = push
                 self.current = current
             }
@@ -801,6 +715,7 @@ extension Components {
                 case name
                 case createdAt = "created_at"
                 case lastSeenAt = "last_seen_at"
+                case agentId = "agent_id"
                 case push
                 case current
             }
@@ -822,6 +737,10 @@ extension Components {
                     Foundation.Date.self,
                     forKey: .lastSeenAt
                 )
+                self.agentId = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
                 self.push = try container.decode(
                     Components.Schemas.Device.PushPayload.self,
                     forKey: .push
@@ -835,8 +754,36 @@ extension Components {
                     "name",
                     "created_at",
                     "last_seen_at",
+                    "agent_id",
                     "push",
                     "current"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeviceUpdate`.
+        public struct DeviceUpdate: Codable, Hashable, Sendable {
+            /// The buddy this phone shows from now on; a live one.
+            ///
+            /// - Remark: Generated from `#/components/schemas/DeviceUpdate/agent_id`.
+            public var agentId: Swift.String
+            /// Creates a new `DeviceUpdate`.
+            ///
+            /// - Parameters:
+            ///   - agentId: The buddy this phone shows from now on; a live one.
+            public init(agentId: Swift.String) {
+                self.agentId = agentId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case agentId = "agent_id"
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.agentId = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "agent_id"
                 ])
             }
         }
@@ -922,6 +869,12 @@ extension Components {
             /// - Remark: Generated from `#/components/schemas/Agent/seed`.
             @available(*, deprecated)
             public var seed: Swift.String?
+            /// When the buddy was archived (`POST /agents/{agent_id}/archive`). Its brain is stopped;
+            /// its chat and memory stay readable. Absent for a live buddy. New in 0.8.0.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/Agent/archived_at`.
+            public var archivedAt: Foundation.Date?
             /// When the person finished "Meet your helper" after pairing (`AgentUpdate.onboarded`).
             /// Absent until then, and the app shows onboarding. New in 0.7.0.
             ///
@@ -947,6 +900,7 @@ extension Components {
             ///   - animal: A read-only copy of `look.animal` (since 0.7.0). Before 0.7.0, a recipe in
             ///   - palette: Deprecated in 0.7.0 (use `look.color`). A palette id from `shared/avatar/palettes.json`.
             ///   - seed: Deprecated in 0.7.0. Fed the old avatar's deterministic details (spots, blink timing).
+            ///   - archivedAt: When the buddy was archived (`POST /agents/{agent_id}/archive`). Its brain is stopped;
             ///   - onboardedAt: When the person finished "Meet your helper" after pairing (`AgentUpdate.onboarded`).
             ///   - mainConversationId: Where to send messages to this agent's main conversation.
             ///   - state:
@@ -959,6 +913,7 @@ extension Components {
                 animal: Swift.String,
                 palette: Swift.String? = nil,
                 seed: Swift.String? = nil,
+                archivedAt: Foundation.Date? = nil,
                 onboardedAt: Foundation.Date? = nil,
                 mainConversationId: Swift.String,
                 state: Components.Schemas.AgentState,
@@ -971,6 +926,7 @@ extension Components {
                 self.animal = animal
                 self.palette = palette
                 self.seed = seed
+                self.archivedAt = archivedAt
                 self.onboardedAt = onboardedAt
                 self.mainConversationId = mainConversationId
                 self.state = state
@@ -984,6 +940,7 @@ extension Components {
                 case animal
                 case palette
                 case seed
+                case archivedAt = "archived_at"
                 case onboardedAt = "onboarded_at"
                 case mainConversationId = "main_conversation_id"
                 case state
@@ -1016,6 +973,10 @@ extension Components {
                     Swift.String.self,
                     forKey: .seed
                 )
+                self.archivedAt = try container.decodeIfPresent(
+                    Foundation.Date.self,
+                    forKey: .archivedAt
+                )
                 self.onboardedAt = try container.decodeIfPresent(
                     Foundation.Date.self,
                     forKey: .onboardedAt
@@ -1043,11 +1004,54 @@ extension Components {
                     "animal",
                     "palette",
                     "seed",
+                    "archived_at",
                     "onboarded_at",
                     "main_conversation_id",
                     "state",
                     "model_brain",
                     "model_worker"
+                ])
+            }
+        }
+        /// The body of `POST /agents`, a new buddy. New in 0.8.0.
+        ///
+        /// - Remark: Generated from `#/components/schemas/NewAgent`.
+        public struct NewAgent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NewAgent/name`.
+            public var name: Swift.String
+            /// Picked from the name when absent.
+            ///
+            /// - Remark: Generated from `#/components/schemas/NewAgent/look`.
+            public var look: Components.Schemas.NewLook?
+            /// Creates a new `NewAgent`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            ///   - look: Picked from the name when absent.
+            public init(
+                name: Swift.String,
+                look: Components.Schemas.NewLook? = nil
+            ) {
+                self.name = name
+                self.look = look
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case look
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.look = try container.decodeIfPresent(
+                    Components.Schemas.NewLook.self,
+                    forKey: .look
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "name",
+                    "look"
                 ])
             }
         }
@@ -1183,7 +1187,7 @@ extension Components {
                 ])
             }
         }
-        /// A look sent to the hub (`AgentUpdate.look`, `NewUser.agent.look`). Only the known values;
+        /// A look sent to the hub (`AgentUpdate.look`, `NewAgent.look`). Only the known values;
         /// anything else is 400 `bad_request`. New in 0.7.1 (0.7.0 used `Look` here, with the same rules).
         ///
         ///
@@ -1471,8 +1475,8 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/NewMessage/artifact_id`.
             public var artifactId: Swift.String?
-            /// The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
-            /// the caller's own (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
+            /// The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must
+            /// exist (see `POST /conversations/{conversation_id}/messages`). New in 0.7.0.
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/NewMessage/mentions`.
@@ -1484,7 +1488,7 @@ extension Components {
             ///   - clientId: Chosen by the app; makes retries safe.
             ///   - projectId: Sent from a project room (B-32). The message still goes to the main conversation; the tag
             ///   - artifactId: An item attached to the message ("Ask about this" on an item, B-21). The stored message
-            ///   - mentions: The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must be
+            ///   - mentions: The quests, items (`@`) and projects (`#`) picked in the composer (B-42). Each must
             public init(
                 text: Swift.String,
                 clientId: Swift.String? = nil,
@@ -3592,9 +3596,12 @@ extension Components {
             ///
             /// - Remark: Generated from `#/components/schemas/Project/board_artifact_id`.
             public var boardArtifactId: Swift.String
-            /// A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
-            /// a worker reports a `link` artifact with `role: tracker` (channel.schema.json `Artifact`);
-            /// a later one replaces it. New in 0.7.0.
+            /// A coding project's tracker (B-46), a claude.ai artifact readable on the phone and the
+            /// laptop: `https://claude.ai/artifact/<id>` or `https://claude.ai/code/artifact/<id>`,
+            /// nothing else (0.8.0). Set only by the project's kickoff quest (brain-api.yaml
+            /// `NewTask.kickoff`), when it reports a `link` artifact with `role: tracker`
+            /// (channel.schema.json `Artifact`); a later report from that quest replaces it. Any other
+            /// quest's tracker report is refused. New in 0.7.0.
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/Project/tracker_url`.
@@ -3673,7 +3680,7 @@ extension Components {
             ///   - instructions: Standing instructions every thread in the project starts with (Markdown).
             ///   - claudeProjectUrl: A linked Claude Code Project (B-33a); informational in v1.
             ///   - boardArtifactId: The project's board (B-35), an artifact of kind `board`.
-            ///   - trackerUrl: A coding project's tracker (B-46), a page readable on the phone and the laptop. Set when
+            ///   - trackerUrl: A coding project's tracker (B-46), a claude.ai artifact readable on the phone and the
             ///   - archived:
             ///   - counts:
             ///   - createdAt:
@@ -4658,13 +4665,17 @@ extension Components {
                 ])
             }
         }
-        /// What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`.
-        /// The app keeps `hub` as its server URL and posts `code` to `/pair` on it.
+        /// What the pairing QR code encodes: a URL `marcel://pair?hub=<server URL, URL-encoded>&code=<code>`,
+        /// plus `&buddy=<agent id>` when the code names the buddy the new phone starts on (0.8.0). The
+        /// app keeps `hub` as its server URL and posts `code` to `/pair` on it.
         ///
         ///
         /// - Remark: Generated from `#/components/schemas/PairingCode`.
         public typealias PairingCode = Swift.String
-        /// The payload of every push, the same for APNs and ntfy (B-16, B-18). On APNs, `title` and
+        /// The payload of every push, the same for APNs and ntfy (B-16, B-18). Through the push relay
+        /// (0.8.0) the hub sends `title`, `body`, `deep_link` (as `link`), `category` and the buddy as
+        /// a `SealedPushContent`, sealed for the phone (`SealedPush`), and `level` as the relay's
+        /// `urgent`. On APNs, `title` and
         /// `body` go in `aps.alert`, `category` is the APNs category, `collapse_key` is
         /// `apns-collapse-id`, and the rest sits beside `aps`. On ntfy they map to Title, the message,
         /// Tags and a Click action set to `deep_link`.
@@ -4818,6 +4829,189 @@ extension Components {
                     "collapse_key",
                     "task_id",
                     "approval_id"
+                ])
+            }
+        }
+        /// A notification sealed for one phone, which the hub sends through the push relay
+        /// (`push-relay.yaml` `POST /v1/push`) and the phone's Notification Service Extension opens.
+        /// The relay sees only these bytes; it never has a key that opens them. New in 0.8.0.
+        ///
+        /// How the hub seals `SealedPushContent` for a phone whose `PushTarget.device_key` is `D`:
+        /// 1. Make a fresh X25519 key pair for this push; `eph` is its public key. `shared` = X25519
+        ///    of that private key with `D`.
+        /// 2. `key` = HKDF-SHA256 over `shared`, salt the 64 bytes `eph ‖ D`, info the ASCII bytes
+        ///    `marcel-push-v1`, 32 bytes out.
+        /// 3. `box` = ChaCha20-Poly1305 with `key`, a fresh random 12-byte `nonce`, associated data
+        ///    the ASCII bytes `marcel-push-v1`, over the UTF-8 JSON of `SealedPushContent`: the
+        ///    ciphertext followed by the 16-byte tag.
+        ///
+        /// `eph`, `nonce` and `box` are base64url without padding. The phone does the same with its
+        /// private key and `eph`; a box that does not open is dropped and the phone shows nothing.
+        /// `contracts/tests/fixtures/sealed-push/vector.json` is a known-answer vector with fixed test
+        /// keys, for the hub's and the app's tests.
+        ///
+        ///
+        /// - Remark: Generated from `#/components/schemas/SealedPush`.
+        public struct SealedPush: Codable, Hashable, Sendable {
+            /// The sealing scheme above. A phone drops a version it does not know.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPush/v`.
+            public var v: OpenAPIRuntime.OpenAPIValueContainer
+            /// The hub's one-time X25519 public key, 32 bytes.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPush/eph`.
+            public var eph: Swift.String
+            /// 12 random bytes.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPush/nonce`.
+            public var nonce: Swift.String
+            /// Ciphertext and the 16-byte tag. The relay refuses a push over 3 KB.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPush/box`.
+            public var box: Swift.String
+            /// Creates a new `SealedPush`.
+            ///
+            /// - Parameters:
+            ///   - v: The sealing scheme above. A phone drops a version it does not know.
+            ///   - eph: The hub's one-time X25519 public key, 32 bytes.
+            ///   - nonce: 12 random bytes.
+            ///   - box: Ciphertext and the 16-byte tag. The relay refuses a push over 3 KB.
+            public init(
+                v: OpenAPIRuntime.OpenAPIValueContainer,
+                eph: Swift.String,
+                nonce: Swift.String,
+                box: Swift.String
+            ) {
+                self.v = v
+                self.eph = eph
+                self.nonce = nonce
+                self.box = box
+            }
+            public enum CodingKeys: String, CodingKey {
+                case v
+                case eph
+                case nonce
+                case box
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.v = try container.decode(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .v
+                )
+                self.eph = try container.decode(
+                    Swift.String.self,
+                    forKey: .eph
+                )
+                self.nonce = try container.decode(
+                    Swift.String.self,
+                    forKey: .nonce
+                )
+                self.box = try container.decode(
+                    Swift.String.self,
+                    forKey: .box
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "v",
+                    "eph",
+                    "nonce",
+                    "box"
+                ])
+            }
+        }
+        /// What a `SealedPush` holds: the notification the phone shows. New in 0.8.0.
+        ///
+        ///
+        /// - Remark: Generated from `#/components/schemas/SealedPushContent`.
+        public struct SealedPushContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/title`.
+            public var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/body`.
+            public var body: Swift.String
+            /// Where a tap goes, as `PushNotification.deep_link`.
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/link`.
+            public var link: Swift.String
+            /// The buddy the notice is about; the app opens that buddy on a tap. Absent for a notice
+            /// about Marcel as a whole (redeploy, backup, usage, logged out), which every phone gets.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/agent_id`.
+            public var agentId: Swift.String?
+            /// As `PushNotification.category`. The extension sets it as the notification's category,
+            /// so an `approval` shows Approve and Deny.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/category`.
+            @frozen public enum CategoryPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case approval = "approval"
+                case task = "task"
+                case broke = "broke"
+                case digest = "digest"
+                case note = "note"
+            }
+            /// As `PushNotification.category`. The extension sets it as the notification's category,
+            /// so an `approval` shows Approve and Deny.
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/SealedPushContent/category`.
+            public var category: Components.Schemas.SealedPushContent.CategoryPayload?
+            /// Creates a new `SealedPushContent`.
+            ///
+            /// - Parameters:
+            ///   - title:
+            ///   - body:
+            ///   - link: Where a tap goes, as `PushNotification.deep_link`.
+            ///   - agentId: The buddy the notice is about; the app opens that buddy on a tap. Absent for a notice
+            ///   - category: As `PushNotification.category`. The extension sets it as the notification's category,
+            public init(
+                title: Swift.String,
+                body: Swift.String,
+                link: Swift.String,
+                agentId: Swift.String? = nil,
+                category: Components.Schemas.SealedPushContent.CategoryPayload? = nil
+            ) {
+                self.title = title
+                self.body = body
+                self.link = link
+                self.agentId = agentId
+                self.category = category
+            }
+            public enum CodingKeys: String, CodingKey {
+                case title
+                case body
+                case link
+                case agentId = "agent_id"
+                case category
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.title = try container.decode(
+                    Swift.String.self,
+                    forKey: .title
+                )
+                self.body = try container.decode(
+                    Swift.String.self,
+                    forKey: .body
+                )
+                self.link = try container.decode(
+                    Swift.String.self,
+                    forKey: .link
+                )
+                self.agentId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .agentId
+                )
+                self.category = try container.decodeIfPresent(
+                    Components.Schemas.SealedPushContent.CategoryPayload.self,
+                    forKey: .category
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "title",
+                    "body",
+                    "link",
+                    "agent_id",
+                    "category"
                 ])
             }
         }

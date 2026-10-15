@@ -2,10 +2,13 @@ import Foundation
 import OpenAPIRuntime
 import OpenAPIURLSession
 
-/// What the hub's pairing QR code holds: `marcel://pair?hub=<server URL>&code=<code>` (contract `PairingCode`).
+/// What the hub's pairing QR code holds: `marcel://pair?hub=<server URL>&code=<code>`, and `&buddy=<agent id>` when
+/// the code was made to start on a buddy (contract `PairingCode`, app API 0.8.0).
 public struct PairingCode: Equatable, Sendable {
     public let serverURL: URL
     public let code: String
+    /// The buddy the new phone starts on, if the link names one.
+    public let buddy: String?
 
     public init(scanned text: String) throws(PairingError) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -20,6 +23,17 @@ public struct PairingCode: Equatable, Sendable {
         else { throw .notAPairingCode }
         self.serverURL = url
         self.code = code
+        // Only a hint: the hub decides which buddy the phone shows. Anything that is not an id is dropped.
+        let buddy = items.first(where: { $0.name == "buddy" })?.value
+        self.buddy = buddy.flatMap { Self.isId($0) ? $0 : nil }
+    }
+}
+
+extension PairingCode {
+    /// An id as the hub makes them: 1 to 128 ASCII letters, digits, `_` and `-` (as `DeepLink.isId`).
+    static func isId(_ text: String) -> Bool {
+        (1...128).contains(text.count)
+            && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
     }
 }
 
@@ -52,15 +66,19 @@ public struct PairingService: Sendable {
     let tokenStore: any TokenStore
     let hubStore: any PairedHubStore
     let transport: any ClientTransport
+    /// Called with the link's `&buddy=` once paired: the app shows that buddy (`CurrentBuddy`).
+    let startOn: @Sendable (String) async -> Void
 
     public init(
         tokenStore: any TokenStore,
         hubStore: any PairedHubStore,
-        transport: any ClientTransport = HubClient.transport
+        transport: any ClientTransport = HubClient.transport,
+        startOn: @escaping @Sendable (String) async -> Void = { await CurrentBuddy.shared.show($0) }
     ) {
         self.tokenStore = tokenStore
         self.hubStore = hubStore
         self.transport = transport
+        self.startOn = startOn
     }
 
     @discardableResult
@@ -84,6 +102,7 @@ public struct PairingService: Sendable {
             } catch {
                 throw .couldNotStoreToken
             }
+            if let buddy = pairing.buddy { await startOn(buddy) }
             return hub
         case .badRequest(let bad):
             if case .json(let problem) = bad.body { throw .rejected(problem.message) }

@@ -48,7 +48,7 @@ public struct LiveWelcomeService: WelcomeService {
         case .ok(let ok): return try ok.body.json
         case .badRequest(let bad): throw WelcomeError((try? bad.body.json.message) ?? "The hub didn't accept that.")
         case .unauthorized: throw WelcomeError.unpaired
-        case .notFound: throw WelcomeError("Your helper isn't on the hub any more. Ask the owner to add you again.")
+        case .notFound: throw WelcomeError("That buddy isn't on the hub any more. Pair this phone again from Settings › Buddies.")
         case .undocumented(let status, _): throw WelcomeError("The hub had a problem (\(status)).")
         }
     }

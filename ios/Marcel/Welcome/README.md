@@ -8,8 +8,9 @@ lock and signing out live in this package; `RootView` only routes between them.
   launch goes straight to the chat. Offline right after a launch, the chat shows what is saved and onboarding is asked
   again next time.
 - **Welcome** (`WelcomeView`): the giraffe, "Scan the code from the person who runs Marcel at home", the camera
-  (`QRScannerView`, moved here from the app target), a paste-a-link field with "Sign in", and "No code? Ask the owner
-  to add you." What went wrong pairing is said under the field.
+  (`QRScannerView`, moved here from the app target), a paste-a-link field with "Sign in", and "No code? Make one in
+  Settings › Buddies on a phone that has Marcel." What went wrong pairing is said under the field. Onboarding is for
+  the buddy the phone starts on (`CurrentBuddy`: a pairing link's `&buddy=`), else the first.
 - **Meet your helper** (`OnboardingView`, `OnboardingModel`): "Hi Emma! Meet your helper", the helper's name, the
   look picker (MarcelLook, without its own Save; "Pick from my name" follows the name as typed), and "Start chatting":
   one `PATCH /agents/{id}` with the name, the look and `onboarded: true`.

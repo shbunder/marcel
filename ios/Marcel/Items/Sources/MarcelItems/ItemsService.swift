@@ -147,7 +147,7 @@ public struct LiveItemsService: ItemsService {
         case .unauthorized: throw ItemsError.unauthorized
         case .undocumented(let status, _): throw ItemsError.unexpected("me, HTTP \(status)")
         }
-        guard let agent = me.agents.first else { throw ItemsError.unexpected("no agent") }
+        guard let agent = await CurrentBuddy.chosen(from: me.agents) else { throw ItemsError.unexpected("no agent") }
         return agent.mainConversationId
     }
 

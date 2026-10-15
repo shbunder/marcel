@@ -20,7 +20,8 @@ public struct PushAlert: Codable, Equatable, Hashable, Sendable {
 
 /// A push as the app reads it (`PushNotification` in `contracts/app-api.yaml`): on APNs, `title` and `body` are in
 /// `aps.alert`, the category is the notification's category, and `deep_link`, `approval_id` and `task_id` sit beside
-/// `aps`. Everything in it is untrusted: the link is parsed by `DeepLink`, the ids are checked.
+/// `aps`, with `agent_id`, the buddy it is about (app API 0.8.0). Everything in it is untrusted: the link is parsed by
+/// `DeepLink`, the ids are checked.
 public struct PushPayload: Equatable, Sendable {
     public var title: String
     public var body: String
@@ -28,15 +29,18 @@ public struct PushPayload: Equatable, Sendable {
     public var deepLink: String?
     public var approvalId: String?
     public var taskId: String?
+    /// The buddy the notice is about; nil for one about Marcel as a whole (redeploy, backup, usage).
+    public var agentId: String?
 
     public init(title: String, body: String, category: String, deepLink: String?, approvalId: String? = nil,
-                taskId: String? = nil) {
+                taskId: String? = nil, agentId: String? = nil) {
         self.title = title
         self.body = body
         self.category = category
         self.deepLink = deepLink
         self.approvalId = approvalId.flatMap { DeepLink.isId($0) ? $0 : nil }
         self.taskId = taskId.flatMap { DeepLink.isId($0) ? $0 : nil }
+        self.agentId = agentId.flatMap { DeepLink.isId($0) ? $0 : nil }
     }
 
     /// From a delivered notification: its title, body and category, and the payload's own keys.
@@ -44,7 +48,8 @@ public struct PushPayload: Equatable, Sendable {
         self.init(title: title, body: body, category: category,
                   deepLink: userInfo["deep_link"] as? String,
                   approvalId: userInfo["approval_id"] as? String,
-                  taskId: userInfo["task_id"] as? String)
+                  taskId: userInfo["task_id"] as? String,
+                  agentId: userInfo["agent_id"] as? String)
     }
 
     public func alert(at date: Date = .now) -> PushAlert {

@@ -1,27 +1,29 @@
 import ImageIO
 import MarcelKit
+import MarcelLook
 import PixelKit
 import SwiftUI
 
-/// People (B-37, wireframe Q6), from Settings, for the owner only: a card per person ("Emma · Pip", their phones and
-/// quests this week), the code for a new phone as a QR card under them, and "Add someone" (their name and their
-/// helper's); remove a person after a confirmation that says what happens.
-public struct PeopleView: View {
-    @State private var model: PeopleModel
+/// Settings › Buddies (B-49, wireframe Q6's People replaced): a card per buddy (its avatar and name, "Shown on this
+/// phone" on the one this phone shows) with Rename, Look and Archive; then "Pair another phone", which makes a
+/// one-time code as a QR card, starting on a buddy you pick (or the first one).
+public struct BuddiesView: View {
+    @State private var model: BuddiesModel
+    @State private var lookFor: Agent?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
-    public init(model: PeopleModel) {
+    public init(model: BuddiesModel) {
         _model = State(initialValue: model)
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(title: "People", back: { dismiss() })
+            SettingsHeader(title: "Buddies", back: { dismiss() })
             ScrollView {
                 // "Expires in 9 min." counts down while the screen is open.
                 TimelineView(.everyMinute) { context in
-                    PeopleContent(model: model, now: context.date)
+                    BuddiesContent(model: model, now: context.date, editLook: { lookFor = $0 })
                         .padding(PixelMetrics.padding)
                 }
             }
@@ -30,17 +32,45 @@ public struct PeopleView: View {
         .background(ChatPalette(scheme).well.color)
         .toolbar(.hidden, for: .navigationBar)
         .task { await model.load() }
+        .navigationDestination(item: Binding(get: { lookFor.map(\.id) }, set: { if $0 == nil { lookFor = nil } })) { _ in
+            if let agent = lookFor, let looks = model.looks {
+                BuddyLookScreen(look: LookModel(service: looks, agentId: agent.id, name: agent.name,
+                                                current: agent.drawnLook)) {
+                    lookFor = nil
+                    Task { await model.load() }
+                }
+            }
+        }
     }
 }
 
-/// Everything on the People screen; snapshots draw it without the scroll view.
-struct PeopleContent: View {
-    @Bindable var model: PeopleModel
-    var now: Date
+/// One buddy's look picker, back to Buddies once saved.
+struct BuddyLookScreen: View {
+    var look: LookModel
+    var saved: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
 
-    @State private var name = ""
-    @State private var helper = ""
-    @State private var removing: User?
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsHeader(title: "Look", back: { dismiss() })
+            ScrollView {
+                LookPicker(model: look) { _ in saved() }
+                    .padding(PixelMetrics.padding)
+            }
+        }
+        .background(ChatPalette(scheme).well.color)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// Everything on the Buddies screen; snapshots draw it without the scroll view.
+struct BuddiesContent: View {
+    @Bindable var model: BuddiesModel
+    var now: Date
+    var editLook: (Agent) -> Void = { _ in }
+
+    @State private var archiving: Agent?
     @Environment(\.settingsStill) private var still
 
     var body: some View {
@@ -48,96 +78,103 @@ struct PeopleContent: View {
             if let problem = model.problem {
                 ProblemBanner(text: problem) { model.problem = nil }
             }
-            if let removed = model.removed {
-                ProblemBanner(text: removed) { model.dismissRemoved() }
+            if let archived = model.archived {
+                ProblemBanner(text: archived) { model.dismissArchived() }
             }
-            switch model.people {
+            switch model.buddies {
             case .loading: SettingsNote(text: "Loading…")
-            case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't do people yet.")
+            case .notAvailableYet: SettingsNote(text: "Not available yet: the hub doesn't do buddies yet.")
             case .failed(let words), .unavailable(let words): SettingsNote(text: words, accent: true)
             case .loaded(let list):
-                ForEach(list, id: \.id) { user in
-                    PersonCard(user: user, avatar: model.avatar(for: user),
-                               newCode: { Task { await model.newCode(for: user) } }, remove: { removing = user })
+                ForEach(list, id: \.id) { agent in
+                    BuddyCard(agent: agent, avatar: model.avatar(for: agent), shown: agent.id == model.shown,
+                              canArchive: list.count > 1, still: still,
+                              rename: { name in Task { await model.rename(agent, to: name) } },
+                              look: model.looks == nil ? nil : { editLook(agent) },
+                              archive: { archiving = agent })
+                }
+            }
+            SettingsCard("Pair another phone") {
+                VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
+                    SettingsNote(text: "Another phone of yours can use Marcel too. It sees every buddy and starts on "
+                                 + "the one you pick.")
+                    if case .loaded(let list) = model.buddies, list.count > 1 {
+                        if still {
+                            // ImageRenderer cannot draw a menu: the snapshot shows what it says.
+                            Text("Starts on: " + (list.first { $0.id == model.startOn }?.name ?? "the first buddy"))
+                                .font(.body)
+                        } else {
+                            Picker("Starts on", selection: $model.startOn) {
+                                Text("The first buddy").tag(String?.none)
+                                ForEach(list, id: \.id) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    }
+                }
+                SettingsButton(title: model.busy ? "Making a code…" : "Make a code", enabled: !model.busy) {
+                    Task { await model.newCode() }
                 }
             }
             if let code = model.code {
                 CodeCard(code: code, now: now) { model.closeCode() }
             }
-            SettingsCard("Add someone") {
-                VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
-                    SettingsNote(text: "They get their own helper and their own chat. You'll get a code for their "
-                                 + "phone.")
-                    PeopleField(placeholder: "Their name", text: $name, still: still)
-                    PeopleField(placeholder: "Their helper's name", text: $helper, still: still)
-                }
-                SettingsButton(title: model.busy ? "Adding…" : "Add person", enabled: !model.busy) {
-                    Task {
-                        if await model.add(name: name, helperName: helper) {
-                            name = ""
-                            helper = ""
-                        }
-                    }
-                }
-            }
         }
-        .confirmationDialog(removing.map { "Remove \($0.name)?" } ?? "", isPresented: Binding(
-            get: { removing != nil }, set: { if !$0 { removing = nil } }
-        ), titleVisibility: .visible, presenting: removing) { user in
-            Button("Remove \(user.name)", role: .destructive) { Task { await model.remove(user) } }
+        .confirmationDialog(archiving.map { "Archive \($0.name)?" } ?? "", isPresented: Binding(
+            get: { archiving != nil }, set: { if !$0 { archiving = nil } }
+        ), titleVisibility: .visible, presenting: archiving) { agent in
+            Button("Archive \(agent.name)", role: .destructive) { Task { await model.archive(agent) } }
             Button("Cancel", role: .cancel) {}
-        } message: { user in
-            Text(PeopleModel.removalWords(user))
+        } message: { agent in
+            Text(BuddiesModel.archiveWords(agent))
         }
-    }
-
-    /// "Owner · 2 phones · 12 quests this week", "1 phone · 3 quests this week".
-    static func line(_ user: User) -> String {
-        var parts: [String] = []
-        if user.role == .owner { parts.append("Owner") }
-        parts.append(user.deviceCount == 1 ? "1 phone" : "\(user.deviceCount) phones")
-        parts.append(user.questsThisWeek == 1 ? "1 quest this week" : "\(user.questsThisWeek) quests this week")
-        return parts.joined(separator: " · ")
     }
 }
 
-/// One person (wireframe Q6): "Emma · Pip" in bold (their name and their helper's), their phones and quests this
-/// week, and for anyone but the owner "New code" and "Remove", on a white rounded card.
-struct PersonCard: View {
-    var user: User
-    /// Their helper, drawn from its look (`PeopleModel.avatar(for:)`); nil while it loads or without a look.
-    var avatar: Data? = nil
-    var newCode: () -> Void
-    var remove: () -> Void
+/// One buddy: its avatar, its name in bold, "Shown on this phone" on the one shown; the name field with Save, then
+/// Look and Archive (not for the last buddy: an install always keeps one), on a white rounded card.
+struct BuddyCard: View {
+    var agent: Agent
+    var avatar: Data?
+    var shown: Bool
+    var canArchive: Bool
+    var still: Bool
+    var rename: (String) -> Void
+    var look: (() -> Void)?
+    var archive: () -> Void
 
+    @State private var name: String?
     @Environment(\.colorScheme) private var scheme
-
-    static func title(_ user: User) -> String {
-        [user.name, user.agent?.name].compactMap { $0 }.joined(separator: " · ")
-    }
 
     var body: some View {
         let theme = ChatPalette(scheme)
+        let typed = Binding(get: { name ?? agent.name }, set: { name = $0 })
         VStack(alignment: .leading, spacing: PixelMetrics.steps(3)) {
             HStack(spacing: PixelMetrics.steps(4)) {
                 HelperAvatar(png: avatar, box: 48)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.title(user))
+                    Text(agent.name)
                         .font(.body.weight(.bold))
                         .foregroundStyle(theme.ink.color)
-                    Text(PeopleContent.line(user))
-                        .font(.footnote)
-                        .foregroundStyle(theme.muted.color)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if shown {
+                        Text("Shown on this phone")
+                            .font(.footnote)
+                            .foregroundStyle(theme.muted.color)
+                    }
                 }
             }
             .accessibilityElement(children: .combine)
-            if user.role != .owner {
-                HStack(spacing: PixelMetrics.steps(3)) {
-                    SettingsButton(title: "New code", action: newCode)
-                    SettingsButton(title: "Remove", destructive: true, action: remove)
+            HStack(spacing: PixelMetrics.steps(3)) {
+                BuddyField(placeholder: "Name", text: typed, still: still)
+                SettingsButton(title: "Save", enabled: (name ?? agent.name) != agent.name) {
+                    rename(typed.wrappedValue)
+                    name = nil
                 }
+            }
+            HStack(spacing: PixelMetrics.steps(3)) {
+                if let look { SettingsButton(title: "Look", action: look) }
+                if canArchive { SettingsButton(title: "Archive", destructive: true, action: archive) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,10 +211,10 @@ struct HelperAvatar: View {
     }
 }
 
-/// The code for someone's phone (wireframe Q6): the QR to scan with "SCAN ON EMMA'S PHONE" under it, the code, the
-/// time left, and the link to send, on a white rounded card.
+/// The code for another phone (wireframe Q6): the QR to scan, the code, the time left, the buddy it starts on, and the
+/// link to send, on a white rounded card.
 struct CodeCard: View {
-    var code: PeopleModel.Code
+    var code: BuddiesModel.Code
     var now: Date
     var close: () -> Void
 
@@ -186,8 +223,8 @@ struct CodeCard: View {
     var body: some View {
         let theme = ChatPalette(scheme)
         VStack(spacing: PixelMetrics.steps(3)) {
-            if let qr = PeopleModel.qr(code.link) {
-                Image(qr, scale: 1, label: Text("QR code for \(code.person)'s phone"))
+            if let qr = BuddiesModel.qr(code.link) {
+                Image(qr, scale: 1, label: Text("QR code for the other phone"))
                     .interpolation(.none)
                     .resizable()
                     .frame(width: 200, height: 200)
@@ -195,7 +232,7 @@ struct CodeCard: View {
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.line.color, lineWidth: 1))
             }
-            PixelText("Scan on \(code.person)'s phone", role: .smallLabel)
+            PixelText("Scan on the other phone", role: .smallLabel)
                 .foregroundStyle(theme.muted.color)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
@@ -203,8 +240,7 @@ struct CodeCard: View {
                 .font(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(theme.ink.color)
                 .accessibilityLabel("Code \(code.code.map(String.init).joined(separator: " "))")
-            Text("On \(code.person)'s phone, open Marcel and scan this, or send them the link. "
-                 + PeopleModel.timeLeft(code, now: now))
+            Text(Self.words(code) + " " + BuddiesModel.timeLeft(code, now: now))
                 .font(.footnote)
                 .foregroundStyle(theme.muted.color)
                 .multilineTextAlignment(.center)
@@ -229,10 +265,16 @@ struct CodeCard: View {
         .chatSurface()
         .accessibilityElement(children: .contain)
     }
+
+    /// "On the other phone, open Marcel and scan this, or send the link. It starts on Pip."
+    static func words(_ code: BuddiesModel.Code) -> String {
+        "On the other phone, open Marcel and scan this, or send the link."
+            + (code.startsOn.map { " It starts on \($0)." } ?? "")
+    }
 }
 
 /// A text field in the chat look; plain text in snapshots.
-struct PeopleField: View {
+struct BuddyField: View {
     var placeholder: String
     @Binding var text: String
     var still: Bool

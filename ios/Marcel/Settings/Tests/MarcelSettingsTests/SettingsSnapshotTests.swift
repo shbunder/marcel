@@ -66,14 +66,6 @@ final class SettingsSnapshotTests: XCTestCase {
                         named: "Settings-name", variants: Self.both, padding: 0)
     }
 
-    /// A family member's Settings: no People.
-    func testSettingsForAMember() async {
-        let hub = FakeHub()
-        hub["GET /me"] = (200, Fx.json(Fx.me().merging(["role": "member", "name": "Emma"]) { $1 }))
-        Snapshot.assert(SettingsStill(model: await model(hub)), named: "Settings-member", variants: [.light],
-                        padding: 0)
-    }
-
     /// A hub without schedules (S-09.1) or usage (S-10.1) yet, and notifications still off.
     func testSettingsOnAHubThatIsNotFinished() async {
         let hub = FakeHub()

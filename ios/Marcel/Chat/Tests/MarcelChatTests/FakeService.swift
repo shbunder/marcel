@@ -38,8 +38,55 @@ final class FakeService: ChatService {
 
     func mainAgent() async throws -> MainAgent {
         meFetches += 1
+        let answering = shown
+        if holdMe { await withCheckedContinuation { heldMe.append($0) } }
         if failing { throw ChatError.unreachable }
-        return MainAgent(conversationId: Fx.conversation, name: agentName, id: "agt_marcel", state: agentState)
+        if answering != shown {
+            // A slow answer: what the hub said when it was asked.
+            return MainAgent(conversationId: Fx.conversation, name: agentName, id: answering, deviceId: "dev_me")
+        }
+        if shown == "agt_marcel" {
+            return MainAgent(conversationId: Fx.conversation, name: agentName, id: "agt_marcel", state: agentState,
+                             deviceId: "dev_me")
+        }
+        let other = buddiesOnHub.first { $0.id == shown }
+        return MainAgent(conversationId: "cnv_main_\(shown)", name: other?.name ?? shown, id: shown, deviceId: "dev_me")
+    }
+
+    /// The buddy `GET /devices` says this phone shows, the other buddies, and every `PATCH /devices` sent.
+    var shown = "agt_marcel"
+    var buddiesOnHub: [BuddyChoice] = []
+    private(set) var switches: [(agentId: String, deviceId: String)] = []
+
+    func buddies() async throws -> [BuddyChoice] {
+        [BuddyChoice(id: "agt_marcel", name: agentName, lastMessage: "Dentist at 9:30.")] + buddiesOnHub
+    }
+
+    /// Buddies archived since the sheet was filled: switching to one answers 404 `agent_not_found`.
+    var archived: Set<String> = []
+    /// The hub takes the next switch, then can't be reached.
+    var failingAfterSwitch = false
+    /// Holds `mainAgent` until the test lets it go, to see a slow start finish after a switch.
+    var holdMe = false
+    private var heldMe: [CheckedContinuation<Void, Never>] = []
+
+    func releaseMe() {
+        heldMe.forEach { $0.resume() }
+        heldMe = []
+    }
+
+    func show(agentId: String, deviceId: String) async throws {
+        if failing { throw ChatError("Couldn't switch: can't reach the hub.") }
+        if archived.contains(agentId) { throw ChatError("That buddy is gone. Pick another one.") }
+        switches.append((agentId, deviceId))
+        shown = agentId
+        if failingAfterSwitch { failing = true }
+    }
+
+    func addBuddy(name: String) async throws -> BuddyChoice {
+        let added = BuddyChoice(id: "agt_\(name.lowercased())", name: name)
+        buddiesOnHub.append(added)
+        return added
     }
 
     /// What `avatar` answers (nil: not modified), whether it fails as if offline, and who was asked for.

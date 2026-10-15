@@ -42,10 +42,8 @@ public enum PushRoute: Equatable, Sendable {
 @Observable
 public final class SettingsModel {
     public private(set) var me: Me?
-    /// People is the owner's only (B-37): a family member never sees it.
-    public var showsPeople: Bool { me?.role == .owner }
-    /// The agent Settings is about (the first one; a household has one agent per person).
-    public var agent: Agent? { me?.agents.first }
+    /// The buddy Settings is about: the one this phone shows (`CurrentBuddy`, B-49).
+    public var agent: Agent? { CurrentBuddy.shared.pick(from: me?.agents ?? []) }
     /// What is typed in the name field.
     public var name = ""
     public private(set) var push: PushRoute = .off
@@ -82,8 +80,8 @@ public final class SettingsModel {
         do {
             let me = try await service.me()
             self.me = me
-            if name.isEmpty || name == agent?.name { name = me.agents.first?.name ?? "" }
-            if let agentName = me.agents.first?.name { nameChanged(agentName) }
+            if name.isEmpty || name == agent?.name { name = agent?.name ?? "" }
+            if let agentName = agent?.name { nameChanged(agentName) }
             problem = nil
         } catch {
             problem = SettingsError.words(for: error)
@@ -125,7 +123,8 @@ public final class SettingsModel {
 
     private func route(for kind: Device.PushPayload?) -> PushRoute {
         switch kind {
-        case .apns: return .apns
+        // Through Marcel's push relay (app API 0.8.0) the notices still come by Apple's push service.
+        case .apns, .relay: return .apns
         case .ntfy:
             guard let topic = topics.saved else { return .off }
             return .ntfy(topic: topic, server: ntfyServer)

@@ -1,6 +1,6 @@
-# Settings — settings, people, notifications and links (S-12.10, S-17.6)
+# Settings — settings, buddies, notifications and links (S-12.10, S-17.6, S-22.12)
 
-Settings (B-18, B-19, B-22, B-40), People (B-37), the system status screen, and where every `marcel://` link and every
+Settings (B-18, B-19, B-22, B-40), Buddies (B-49), the system status screen, and where every `marcel://` link and every
 push leads. Drawn in the chat look (ADR-007) and laid out like the owner's wireframe (artifact KtdD3PMLeyZP7QrwqYLrdv
 Q6): a bold header, small pixel group titles above white rounded boxes with a thin line between rows, buttons in the
 normal font, on the soft ground. Settings opens from the avatar header in the chat.
@@ -21,7 +21,7 @@ The helper's card on top, then five groups (wireframe Q6):
   away).
 - **Marcel** — **Notebook (memory) ›** and **System status ›**.
 - **Schedules** and **Plan usage** — each in its own box, with its buttons inline (real sub-screens are a later story).
-- **Account** — **People ›** (the owner only: `GET /me`'s `role`), the phones, and **Sign out of this phone** (bold red
+- **Account** — **Buddies ›** (every phone: app API 0.8.0 has no roles, ADR-013), the phones, and **Sign out of this phone** (bold red
   words): forgets the
   ntfy topic, then runs `AppFlow.signOut` (the hub forgets this phone, then the phone forgets the hub, the sign-in and
   the cache, and shows the welcome screen; offline it still signs out and says the hub wasn't told).
@@ -33,7 +33,7 @@ The helper's card on top, then five groups (wireframe Q6):
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. A 503 `no_reading` (the runner has not read usage since it started) says "Usage unavailable" as a plain note, not a problem. |
 | Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused: they have no Delete button, and if the hub still answers 409 `schedule_builtin` the app says why in plain words, hides Delete and offers "Pause it instead?". 404 `schedule_not_found` means it was already deleted (the row goes); the generic `not_found` means an older hub ("not available yet"). |
 | Phones | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). This phone signs out with **Sign out of this phone** instead. |
-| People | `GET /users`, `GET /avatar-previews`, `POST /users`, `POST /users/{id}/pairing-codes`, `DELETE /users/{id}` | The owner only (`PeopleModel`, `PeopleView`). Each card shows the helper drawn from its look (`GET /avatar-previews`, at whole-number zoom): the owner can't fetch another person's sheet. A card per person, "Emma · Pip" in bold with their phones and quests this week. **Add someone**: their name and their helper's (the hub picks the helper's look from its name), then the code for their first phone as a QR card under the people ("SCAN ON EMMA'S PHONE"), the code, **Send link**, and the time left ("Expires in 9 min."). **New code** for anyone. **Remove** after a confirmation that says what happens: "Emma's phones are signed out and Emma's helper, Pip, stops. Their chats and notes stay on the hub." — said again once done, and the person is gone from the list. A member asking gets the hub's own words (403 `owner_only`). |
+| Buddies | `GET /me`, `GET /avatar-previews`, `PATCH /agents/{id}`, `POST /agents/{id}/archive`, `POST /pairing-codes` | Replaces People (S-22.12, B-49). A card per live buddy: its avatar drawn from its look (`GET /avatar-previews`, whole-number zoom), its name in bold, "Shown on this phone" on the one this phone shows (`CurrentBuddy`). **Rename** (the name field and Save), **Look** (the look picker, S-19.4, for that buddy), **Archive** after a confirmation ("Pip stops working and leaves your buddies. Its chat and notebook stay readable."), not offered for the last buddy (409 `last_buddy` would refuse it). **Pair another phone**: "Starts on" (a buddy, or the first one), **Make a code** → the QR card ("SCAN ON THE OTHER PHONE"), the code, "It starts on Pip.", **Send link** and the time left. |
 | System | `GET /health` | Opens the status screen. |
 
 Each section loads and fails on its own. A hub that answers **404, 405 or 501** for a route the contract has (schedules
@@ -99,7 +99,9 @@ not open the app; `PushHandler` answers with `POST /approvals/{id}` using this p
 launch (`PushHandler.answering`) and reads the saved hub address and the Keychain token when the action comes in, because
 iOS may start the app in the background just for the action, and then no screen ever loads. If that fails (answered in
 the terminal first, not paired, no id) the phone shows a local notification that says so. A tap on any push opens its
-`deep_link`. A push that arrives while the app is open still shows as a banner.
+`deep_link`. A push about a buddy (`agent_id`, app API 0.8.0) first switches the app to that buddy (`LinkRouter.buddy`,
+which the app hands to the chat); one about Marcel as a whole has none and switches nothing. A push that arrives while
+the app is open still shows as a banner.
 
 ## Tests (`make -C ios settings-test`, part of `make ios-check`)
 
@@ -118,11 +120,11 @@ the terminal first, not paired, no id) the phone shows a local notification that
   ntfy fallback, refused permission; pause, delete, built-in digests (409 `schedule_builtin` → "Pause it instead?"), a schedule
   already gone (`schedule_not_found`); the APNs token's hex check; revoking a device; the words each section shows;
   "usage unavailable" on 503 `no_reading`; the name passed on for the chat header.
-- `PeopleTests` (S-17.6) — the owner sees People and a member does not (nor a hub that does not say); everyone listed
-  with helper, phones and quests; adding Emma shows a QR, the code and the time left; removing her says what happens
-  and she is gone; a member's 403 in the hub's words; snapshots "People" (with a code) and "People-removed".
-  `PeopleMockHubTests` does it against the mock hub (`make -C ios settings-integration`): the owner adds someone and
-  gets a QR, their phone pairs and has no People, removing them signs that phone out.
-- `SettingsSnapshotTests` — Settings (the owner's, everything there; a member's, no People; a hub with no schedules or usage yet; no usage reading yet; deleting a built-in digest offering pause) and
+- `BuddiesTests` (S-22.12) — every live buddy listed and the shown one marked; rename sends the new name (the same name
+  sends nothing); archiving says the chat stays readable and drops the buddy; the last buddy's 409 in the hub's words;
+  a code with no buddy sends none, one for Pip sends `agent_id` and says "It starts on Pip"; the "Buddies" snapshot.
+  `BuddiesMockHubTests` does it against the mock hub (`make -C ios settings-integration`): both seeded buddies listed,
+  a code for Pip pairs a phone that starts on Pip (`&buddy=`), it switches with `PATCH /devices/{id}`, then signs out.
+- `SettingsSnapshotTests` — Settings (everything there; a hub with no schedules or usage yet; no usage reading yet; deleting a built-in digest offering pause) and
   the status screen, in
   light and dark, pixel for pixel. `make -C ios settings-record` re-records them after a deliberate change.

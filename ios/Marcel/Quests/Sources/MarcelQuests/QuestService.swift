@@ -84,7 +84,8 @@ public struct LiveQuestService: QuestService {
         case .undocumented(let status, _): throw QuestActionError.unexpected("me, HTTP \(status)")
         }
         var tasks: [HubTask] = []
-        for agent in me.agents {
+        // The buddy this phone shows (B-49).
+        for agent in [await CurrentBuddy.chosen(from: me.agents)].compactMap({ $0 }) {
             var cursor: String?
             // Pages of 200; ten pages is far more than a family archives, and keeps a bad cursor from looping.
             for _ in 0..<10 {

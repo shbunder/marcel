@@ -138,7 +138,7 @@ chat-test: chat-bundle $(RUNNER) boot
 chat-record: chat-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELCHAT_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS) ChatSnapshotTests \
 	  AvatarHeaderSnapshotTests ChatLookSnapshotTests SideChatSnapshotTests QuoteAndMentionTests \
-	  OwnAvatarTests
+	  OwnAvatarTests BuddySwitchTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(CHAT_TESTS)
 
 # The chat's scenario against the mock hub (start it first: MOCK_HUB_PORT=7488 make mock-hub). Not part of the gate.
@@ -234,14 +234,15 @@ settings-bundle:
 settings-test: settings-bundle $(RUNNER) boot
 	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
 
-# People against the mock hub: add a person (a QR), their phone sees no People, remove them. Start a mock hub first:
+# Buddies against the mock hub: both seeded buddies listed, a code that starts on Pip pairs a phone that starts on Pip,
+# it switches with PATCH /devices, then signs out. Start a mock hub first:
 # `MOCK_DELAY=0 MOCK_HUB_PORT=7488 make mock-hub`, then `MOCK_HUB=http://127.0.0.1:7488/api make -C ios settings-integration`.
 settings-integration: settings-bundle $(RUNNER) boot
-	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) PeopleMockHubTests
+	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) BuddiesMockHubTests
 
 # Re-record the Settings snapshots after a deliberate change (the recording run fails by design), then check them.
 settings-record: settings-bundle $(RUNNER) boot
-	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests PeopleTests
+	-SIMCTL_CHILD_MARCELSETTINGS_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS) SettingsSnapshotTests BuddiesTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(SETTINGS_TESTS)
 
 # Marcel's notebook (Marcel/Notebook, the MarcelNotebook package): the memory files by section, the editor's save,
@@ -292,7 +293,7 @@ welcome-record: welcome-bundle $(RUNNER) boot
 	-SIMCTL_CHILD_MARCELWELCOME_RECORD=1 xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS) WelcomeSnapshotTests
 	xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS)
 
-# Pair as Emma on the mock hub → onboarding → chat; sign out → welcome. Start a fresh hub first:
+# Pair a second phone on the mock hub → onboarding of the first buddy → chat; sign out → welcome. Start a fresh hub first:
 # `MOCK_DELAY=0 MOCK_HUB_PORT=7488 make mock-hub`, then `MOCK_HUB=http://127.0.0.1:7488/api make -C ios welcome-integration`.
 welcome-integration: welcome-bundle $(RUNNER) boot
 	SIMCTL_CHILD_MARCEL_MOCK_HUB=$(MOCK_HUB) xcrun simctl spawn $(SIM) $(RUNNER) $(WELCOME_TESTS) WelcomeMockHubTests

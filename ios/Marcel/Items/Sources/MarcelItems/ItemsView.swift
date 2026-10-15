@@ -30,7 +30,9 @@ public struct ItemsView: View {
     public var body: some View {
         NavigationStack(path: $path) {
             TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                let input = ItemsInput.read(artifacts: artifacts, projects: projects)
+                // Only the buddy this phone shows (B-49).
+                let mine = CurrentBuddy.shared.rows(projects: projects, tasks: [], artifacts: artifacts)
+                let input = ItemsInput.read(artifacts: mine.artifacts, projects: mine.projects)
                 VStack(spacing: 0) {
                     ItemsHeader()
                     ScrollView {

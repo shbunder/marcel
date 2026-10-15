@@ -66,7 +66,7 @@ docker exec -it marcel-hub marcel-hub setup
 make -C deploy health                 # waits up to a minute for "hub /internal/health" to say ok
 ```
 
-Family members are added from the app (Settings › People), not here.
+Buddies and more phones are added from the app (Settings › Buddies), not here.
 
 `make -C deploy install` is safe to run again. It installs node 22, builds the plugin, points the
 `marcel-local` marketplace at `~/marcel/plugins`, writes the hub secret, renders the brain workspace,

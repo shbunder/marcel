@@ -38,7 +38,7 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /pair`.
     /// - Remark: Generated from `#/paths//pair/post(pairDevice)`.
     func pairDevice(_ input: Operations.PairDevice.Input) async throws -> Operations.PairDevice.Output
-    /// Who this device belongs to, and that person's agents.
+    /// The one person this install belongs to, and their live buddies.
     ///
     /// - Remark: HTTP `GET /me`.
     /// - Remark: Generated from `#/paths//me/get(getMe)`.
@@ -48,6 +48,17 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /devices`.
     /// - Remark: Generated from `#/paths//devices/get(listDevices)`.
     func listDevices(_ input: Operations.ListDevices.Input) async throws -> Operations.ListDevices.Output
+    /// Choose the buddy this phone shows (B-49). New in 0.8.0.
+    ///
+    /// Any paired phone may change any phone's buddy, its own included. The hub answers the
+    /// updated `Device` and sends the `device.updated` event, so the phone switches even when the
+    /// change came from another phone. That buddy's pushes go to this phone from then on; pushes
+    /// about no buddy (redeploy, backup, usage, logged out) go to every phone.
+    ///
+    ///
+    /// - Remark: HTTP `PATCH /devices/{device_id}`.
+    /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)`.
+    func updateDevice(_ input: Operations.UpdateDevice.Input) async throws -> Operations.UpdateDevice.Output
     /// Revoke a device. Its token stops working at once.
     ///
     /// - Remark: HTTP `DELETE /devices/{device_id}`.
@@ -58,51 +69,37 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /devices/{device_id}/push`.
     /// - Remark: Generated from `#/paths//devices/{device_id}/push/put(setDevicePush)`.
     func setDevicePush(_ input: Operations.SetDevicePush.Input) async throws -> Operations.SetDevicePush.Output
-    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    /// A one-time code that pairs another phone (B-49). New in 0.8.0.
     ///
-    /// - Remark: HTTP `GET /users`.
-    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
-    func listUsers(_ input: Operations.ListUsers.Input) async throws -> Operations.ListUsers.Output
-    /// Add a family member and their helper. Owner only. New in 0.7.0.
-    ///
-    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
-    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
-    /// first phone with `POST /users/{user_id}/pairing-codes`.
+    /// Any paired phone may ask. The same kind of code `marcel-hub pair` prints: it works once,
+    /// for 10 minutes, with `POST /pair`. The new phone starts on `agent_id` when given (its link
+    /// carries `&buddy=<agent_id>`), else on the first live buddy. Show `link` as a QR code, or
+    /// share it as a link.
     ///
     ///
-    /// - Remark: HTTP `POST /users`.
-    /// - Remark: Generated from `#/paths//users/post(addUser)`.
-    func addUser(_ input: Operations.AddUser.Input) async throws -> Operations.AddUser.Output
-    /// Remove a family member. Owner only. New in 0.7.0.
-    ///
-    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
-    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
-    /// notes stay on the NUC.
-    ///
-    ///
-    /// - Remark: HTTP `DELETE /users/{user_id}`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
-    func removeUser(_ input: Operations.RemoveUser.Input) async throws -> Operations.RemoveUser.Output
-    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
-    ///
-    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
-    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
-    /// it as a link.
-    ///
-    ///
-    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
+    /// - Remark: HTTP `POST /pairing-codes`.
+    /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)`.
     func createPairingCode(_ input: Operations.CreatePairingCode.Input) async throws -> Operations.CreatePairingCode.Output
-    /// One agent, with its current state for the avatar.
+    /// Add a buddy (B-49). New in 0.8.0.
     ///
-    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
+    /// A new buddy with its own brain, main conversation and Inbox, as the first one has. Without
+    /// `look` the hub picks one from the name (the same name always gets the same look). Every
+    /// phone hears of it through `agent.updated`; no phone switches to it by itself.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents`.
+    /// - Remark: Generated from `#/paths//agents/post(createAgent)`.
+    func createAgent(_ input: Operations.CreateAgent.Input) async throws -> Operations.CreateAgent.Output
+    /// One buddy, with its current state for the avatar.
+    ///
+    /// Any buddy of the one person, an archived one too (`archived_at`); an unknown id answers 404.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
     func getAgent(_ input: Operations.GetAgent.Input) async throws -> Operations.GetAgent.Output
-    /// Rename an agent, change its look, or finish onboarding.
+    /// Rename a buddy, change its look, or finish onboarding.
     ///
-    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// Any buddy of the one person; an unknown id answers 404. A change sends the
     /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
     /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
     /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
@@ -111,6 +108,18 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PATCH /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/patch(updateAgent)`.
     func updateAgent(_ input: Operations.UpdateAgent.Input) async throws -> Operations.UpdateAgent.Output
+    /// Archive a buddy (B-49). New in 0.8.0.
+    ///
+    /// The buddy's brain stops, and its schedules and digests with it; running quests finish on
+    /// their own. Its chat, quests, items and memory stay readable (`GET /agents/{agent_id}` shows
+    /// `archived_at`), and it leaves `Me.agents`. Phones that showed it switch to the first live
+    /// buddy (each gets `device.updated`). Archiving an archived buddy changes nothing and answers
+    /// it again. Sends `agent.updated`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents/{agent_id}/archive`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)`.
+    func archiveAgent(_ input: Operations.ArchiveAgent.Input) async throws -> Operations.ArchiveAgent.Output
     /// Give Marcel a fresh main session now (a manual rollover). New in 0.6.0.
     ///
     /// The hub starts a new brain with Marcel's notes and recent context, and hands the
@@ -153,7 +162,7 @@ public protocol APIProtocol: Sendable {
     func getAvatarPreview(_ input: Operations.GetAvatarPreview.Input) async throws -> Operations.GetAvatarPreview.Output
     /// The main conversation and every side thread of an agent.
     ///
-    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
+    /// A buddy that does not exist gives an empty list.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -171,8 +180,8 @@ public protocol APIProtocol: Sendable {
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
-    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
-    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// With `mentions` (new in 0.7.0, B-42), each one must be an existing quest, project or
+    /// item (any buddy's), or the message is refused with 404 `mention_not_found` and nothing is stored. The
     /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
     /// `project` mention also sets the message's `project_id` when the message has none.
     ///
@@ -206,7 +215,7 @@ public protocol APIProtocol: Sendable {
     func sendToMain(_ input: Operations.SendToMain.Input) async throws -> Operations.SendToMain.Output
     /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
     ///
-    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// Quests (`task`), projects and items (`artifact`) of every buddy whose title contains `q`
     /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
     /// `task` and `artifact`, `#` for `project`.
     ///
@@ -278,8 +287,8 @@ public protocol APIProtocol: Sendable {
     func getApproval(_ input: Operations.GetApproval.Input) async throws -> Operations.GetApproval.Output
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
-    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
-    /// 403 `owner_only` (new in 0.7.0).
+    /// Any paired phone may answer any card, a self-change card (`tool: self_change`, B-24) too
+    /// (0.8.0: the owner-only rule went with the people model, ADR-013).
     ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.
@@ -445,7 +454,7 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Who this device belongs to, and that person's agents.
+    /// The one person this install belongs to, and their live buddies.
     ///
     /// - Remark: HTTP `GET /me`.
     /// - Remark: Generated from `#/paths//me/get(getMe)`.
@@ -458,6 +467,27 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//devices/get(listDevices)`.
     public func listDevices(headers: Operations.ListDevices.Input.Headers = .init()) async throws -> Operations.ListDevices.Output {
         try await listDevices(Operations.ListDevices.Input(headers: headers))
+    }
+    /// Choose the buddy this phone shows (B-49). New in 0.8.0.
+    ///
+    /// Any paired phone may change any phone's buddy, its own included. The hub answers the
+    /// updated `Device` and sends the `device.updated` event, so the phone switches even when the
+    /// change came from another phone. That buddy's pushes go to this phone from then on; pushes
+    /// about no buddy (redeploy, backup, usage, logged out) go to every phone.
+    ///
+    ///
+    /// - Remark: HTTP `PATCH /devices/{device_id}`.
+    /// - Remark: Generated from `#/paths//devices/{device_id}/patch(updateDevice)`.
+    public func updateDevice(
+        path: Operations.UpdateDevice.Input.Path,
+        headers: Operations.UpdateDevice.Input.Headers = .init(),
+        body: Operations.UpdateDevice.Input.Body
+    ) async throws -> Operations.UpdateDevice.Output {
+        try await updateDevice(Operations.UpdateDevice.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
     }
     /// Revoke a device. Its token stops working at once.
     ///
@@ -487,70 +517,46 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// Everyone who uses this Marcel, with their helper. Owner only. New in 0.7.0.
+    /// A one-time code that pairs another phone (B-49). New in 0.8.0.
     ///
-    /// - Remark: HTTP `GET /users`.
-    /// - Remark: Generated from `#/paths//users/get(listUsers)`.
-    public func listUsers(headers: Operations.ListUsers.Input.Headers = .init()) async throws -> Operations.ListUsers.Output {
-        try await listUsers(Operations.ListUsers.Input(headers: headers))
-    }
-    /// Add a family member and their helper. Owner only. New in 0.7.0.
-    ///
-    /// Stores the person as a `member`, with their own agent (`agent.name`, and `agent.look`, or a
-    /// look picked from the agent's name when absent), main conversation and Inbox. Pair their
-    /// first phone with `POST /users/{user_id}/pairing-codes`.
+    /// Any paired phone may ask. The same kind of code `marcel-hub pair` prints: it works once,
+    /// for 10 minutes, with `POST /pair`. The new phone starts on `agent_id` when given (its link
+    /// carries `&buddy=<agent_id>`), else on the first live buddy. Show `link` as a QR code, or
+    /// share it as a link.
     ///
     ///
-    /// - Remark: HTTP `POST /users`.
-    /// - Remark: Generated from `#/paths//users/post(addUser)`.
-    public func addUser(
-        headers: Operations.AddUser.Input.Headers = .init(),
-        body: Operations.AddUser.Input.Body
-    ) async throws -> Operations.AddUser.Output {
-        try await addUser(Operations.AddUser.Input(
+    /// - Remark: HTTP `POST /pairing-codes`.
+    /// - Remark: Generated from `#/paths//pairing-codes/post(createPairingCode)`.
+    public func createPairingCode(
+        headers: Operations.CreatePairingCode.Input.Headers = .init(),
+        body: Operations.CreatePairingCode.Input.Body? = nil
+    ) async throws -> Operations.CreatePairingCode.Output {
+        try await createPairingCode(Operations.CreatePairingCode.Input(
             headers: headers,
             body: body
         ))
     }
-    /// Remove a family member. Owner only. New in 0.7.0.
+    /// Add a buddy (B-49). New in 0.8.0.
     ///
-    /// Their phones are signed out at once (their tokens answer 401), their running quests stop,
-    /// and their helper is archived: no brain, no schedules, no digests. Their chats, items and
-    /// notes stay on the NUC.
+    /// A new buddy with its own brain, main conversation and Inbox, as the first one has. Without
+    /// `look` the hub picks one from the name (the same name always gets the same look). Every
+    /// phone hears of it through `agent.updated`; no phone switches to it by itself.
     ///
     ///
-    /// - Remark: HTTP `DELETE /users/{user_id}`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/delete(removeUser)`.
-    public func removeUser(
-        path: Operations.RemoveUser.Input.Path,
-        headers: Operations.RemoveUser.Input.Headers = .init()
-    ) async throws -> Operations.RemoveUser.Output {
-        try await removeUser(Operations.RemoveUser.Input(
-            path: path,
-            headers: headers
+    /// - Remark: HTTP `POST /agents`.
+    /// - Remark: Generated from `#/paths//agents/post(createAgent)`.
+    public func createAgent(
+        headers: Operations.CreateAgent.Input.Headers = .init(),
+        body: Operations.CreateAgent.Input.Body
+    ) async throws -> Operations.CreateAgent.Output {
+        try await createAgent(Operations.CreateAgent.Input(
+            headers: headers,
+            body: body
         ))
     }
-    /// A one-time code that pairs a phone to this person. Owner only. New in 0.7.0.
+    /// One buddy, with its current state for the avatar.
     ///
-    /// The same kind of code `marcel-hub pair` prints: it works once, for 10 minutes, with
-    /// `POST /pair`, and the phone it pairs belongs to `user_id`. Show `link` as a QR code, or share
-    /// it as a link.
-    ///
-    ///
-    /// - Remark: HTTP `POST /users/{user_id}/pairing-codes`.
-    /// - Remark: Generated from `#/paths//users/{user_id}/pairing-codes/post(createPairingCode)`.
-    public func createPairingCode(
-        path: Operations.CreatePairingCode.Input.Path,
-        headers: Operations.CreatePairingCode.Input.Headers = .init()
-    ) async throws -> Operations.CreatePairingCode.Output {
-        try await createPairingCode(Operations.CreatePairingCode.Input(
-            path: path,
-            headers: headers
-        ))
-    }
-    /// One agent, with its current state for the avatar.
-    ///
-    /// Only the caller's own agent; another person's answers 404, like one that does not exist.
+    /// Any buddy of the one person, an archived one too (`archived_at`); an unknown id answers 404.
     ///
     /// - Remark: HTTP `GET /agents/{agent_id}`.
     /// - Remark: Generated from `#/paths//agents/{agent_id}/get(getAgent)`.
@@ -563,9 +569,9 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// Rename an agent, change its look, or finish onboarding.
+    /// Rename a buddy, change its look, or finish onboarding.
     ///
-    /// Only for the caller's own agent; another person's answers 404. A change sends the
+    /// Any buddy of the one person; an unknown id answers 404. A change sends the
     /// `agent.updated` event. A rename also tells the agent's brain its new name (channel
     /// `system_event` `agent_renamed`), so it answers to it without a restart. `look` and
     /// `onboarded` are new in 0.7.0; `palette` is deprecated and ignored once the agent has a `look`.
@@ -582,6 +588,26 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// Archive a buddy (B-49). New in 0.8.0.
+    ///
+    /// The buddy's brain stops, and its schedules and digests with it; running quests finish on
+    /// their own. Its chat, quests, items and memory stay readable (`GET /agents/{agent_id}` shows
+    /// `archived_at`), and it leaves `Me.agents`. Phones that showed it switch to the first live
+    /// buddy (each gets `device.updated`). Archiving an archived buddy changes nothing and answers
+    /// it again. Sends `agent.updated`.
+    ///
+    ///
+    /// - Remark: HTTP `POST /agents/{agent_id}/archive`.
+    /// - Remark: Generated from `#/paths//agents/{agent_id}/archive/post(archiveAgent)`.
+    public func archiveAgent(
+        path: Operations.ArchiveAgent.Input.Path,
+        headers: Operations.ArchiveAgent.Input.Headers = .init()
+    ) async throws -> Operations.ArchiveAgent.Output {
+        try await archiveAgent(Operations.ArchiveAgent.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// Give Marcel a fresh main session now (a manual rollover). New in 0.6.0.
@@ -660,7 +686,7 @@ extension APIProtocol {
     }
     /// The main conversation and every side thread of an agent.
     ///
-    /// An agent that does not exist or is not yours gives an empty list, so the answer does not reveal which agents exist.
+    /// A buddy that does not exist gives an empty list.
     ///
     /// - Remark: HTTP `GET /conversations`.
     /// - Remark: Generated from `#/paths//conversations/get(listConversations)`.
@@ -696,8 +722,8 @@ extension APIProtocol {
     /// is attached: the stored message carries it, and Marcel is told which item it is about; an
     /// unknown item answers 404 `artifact_not_found`. New in 0.5.0.
     ///
-    /// With `mentions` (new in 0.7.0, B-42), each one must be the caller's own quest, project or
-    /// item, or the message is refused with 404 `mention_not_found` and nothing is stored. The
+    /// With `mentions` (new in 0.7.0, B-42), each one must be an existing quest, project or
+    /// item (any buddy's), or the message is refused with 404 `mention_not_found` and nothing is stored. The
     /// stored message carries them, with the hub's current titles, and Marcel gets them too. A
     /// `project` mention also sets the message's `project_id` when the message has none.
     ///
@@ -767,7 +793,7 @@ extension APIProtocol {
     }
     /// Quests, projects and items to mention, for `@` and `#` in the composer. New in 0.7.0.
     ///
-    /// The caller's own quests (`task`), projects and items (`artifact`) whose title contains `q`
+    /// Quests (`task`), projects and items (`artifact`) of every buddy whose title contains `q`
     /// (any case), newest first, at most 20. An empty or absent `q` lists the newest. `@` asks for
     /// `task` and `artifact`, `#` for `project`.
     ///
@@ -935,8 +961,8 @@ extension APIProtocol {
     }
     /// Approve or deny (B-12). The first answer wins, from the app or a terminal.
     ///
-    /// A self-change card (`tool: self_change`, B-24) is answered by the owner only; a member gets
-    /// 403 `owner_only` (new in 0.7.0).
+    /// Any paired phone may answer any card, a self-change card (`tool: self_change`, B-24) too
+    /// (0.8.0: the owner-only rule went with the people model, ADR-013).
     ///
     ///
     /// - Remark: HTTP `POST /approvals/{approval_id}`.

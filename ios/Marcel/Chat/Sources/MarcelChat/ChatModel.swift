@@ -53,6 +53,12 @@ public final class ChatModel {
     public private(set) var bubbleColor: PixelColor?
     /// The agent this chat is with; `agent.state` events for another agent are not for this header.
     public private(set) var agentId: String?
+    /// This phone (`Me.device_id`): its buddy is the one `PATCH /devices/{id}` switches.
+    public private(set) var deviceId: String?
+    /// The buddy sheet's rows (B-49), as last loaded.
+    public private(set) var buddies: [BuddyChoice] = []
+    /// The buddy this phone shows, shared with every tab (`CurrentBuddy`).
+    @ObservationIgnored public let buddy: CurrentBuddy
     /// A message to bring into view (a `marcel://message/<id>` link). The feed scrolls to it, loading older pages
     /// from the cache if needed, then clears it.
     public var focus: String?
@@ -77,6 +83,7 @@ public final class ChatModel {
     @ObservationIgnored private var held: (action: MarcelAction, loop: String?)?
     @ObservationIgnored private var flourish: (loop: String, until: TimeInterval)?
     @ObservationIgnored private var taskStates: [String: Components.Schemas.TaskState] = [:]
+    @ObservationIgnored private var starts = 0
     /// Every side chat opened while the app runs, by the message it is on.
     @ObservationIgnored private var sideChatModels: [String: SideChatModel] = [:]
     @ObservationIgnored private var lastAsked: Set<String> = []
@@ -96,7 +103,8 @@ public final class ChatModel {
     ///   - agentId, rememberAgent: the agent remembered from last time, so an offline start plays its kept avatar.
     public init(service: any ChatService, conversationId: String? = nil,
                 remember: @escaping (String) -> Void = { _ in }, avatarDirectory: URL? = nil, agentId: String? = nil,
-                rememberAgent: @escaping (String) -> Void = { _ in }) {
+                rememberAgent: @escaping (String) -> Void = { _ in }, buddy: CurrentBuddy = .shared) {
+        self.buddy = buddy
         self.service = service
         self.conversationId = conversationId
         self.remember = remember
@@ -121,10 +129,17 @@ public final class ChatModel {
 
     /// Asks the hub which conversation is the main one. Offline, the remembered one stays.
     public func start() async {
+        // Only the newest start writes: a slow first start must not undo a switch made meanwhile (a push on a cold
+        // start, two quick picks).
+        starts += 1
+        let mine = starts
         do {
             let agent = try await service.mainAgent()
+            guard mine == starts else { return }
             agentName = agent.name
             agentId = agent.id ?? agentId
+            deviceId = agent.deviceId ?? deviceId
+            if let id = agent.id { buddy.show(id) }
             bubbleColor = agent.look.map(LookColors.bubble)
             personality = agent.look?.personality ?? personality
             if let state = agent.state {
@@ -142,6 +157,7 @@ public final class ChatModel {
             }
             problem = nil
         } catch {
+            guard mine == starts else { return }
             if conversationId == nil { problem = Self.say(error) }
         }
     }
@@ -150,6 +166,11 @@ public final class ChatModel {
     /// the header's giraffe; after a re-sync the missed ones are gone, so the hub is asked again.
     public func receive(_ frame: EventFrame) {
         switch frame.event {
+        case .deviceUpdated(let device, let shown):
+            // Another phone switched this one, or the hub moved it off an archived buddy.
+            guard device == deviceId, shown != agentId else { return }
+            buddy.show(shown)
+            Task { await reloadForBuddy(shown) }
         case .agentState(let id, let state):
             guard agentId == nil || agentId == id else { return }
             let before = agentState
@@ -187,6 +208,80 @@ public final class ChatModel {
         default:
             break
         }
+    }
+
+    // MARK: Buddies (B-49)
+
+    /// The name of the buddy shown before, for a long-press on the avatar ("Back to Pip"); nil when there is none.
+    public var previousBuddyName: String? {
+        guard let previous = buddy.previousId, previous != agentId else { return nil }
+        return buddies.first { $0.id == previous }?.name
+    }
+
+    /// Fills the buddy sheet.
+    public func loadBuddies() async {
+        // Offline the sheet keeps the buddies it last had; the chat has its own word for being offline.
+        if let loaded = try? await service.buddies() { buddies = loaded }
+    }
+
+    /// Shows `id` on this phone: tells the hub (`PATCH /devices/{id}`), then reloads the chat for that buddy. Every
+    /// other tab follows `CurrentBuddy`.
+    public func switchTo(_ id: String) async {
+        // A push tapped on a cold start can come before the chat has asked the hub who this phone is.
+        if deviceId == nil { await start() }
+        guard id != agentId else { return }
+        guard let deviceId else {
+            problem = "Can't switch while the hub is out of reach."
+            return
+        }
+        do {
+            try await service.show(agentId: id, deviceId: deviceId)
+        } catch {
+            problem = Self.say(error)
+            return
+        }
+        buddy.show(id)
+        await reloadForBuddy(id)
+    }
+
+    /// Straight back to the buddy shown before (a long-press on the avatar).
+    public func switchBack() async {
+        guard let previous = buddy.previousId else { return }
+        await switchTo(previous)
+    }
+
+    /// Adds a buddy and shows it.
+    public func addBuddy(named name: String) async {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        do {
+            let added = try await service.addBuddy(name: name)
+            buddies.append(added)
+            await switchTo(added.id)
+        } catch {
+            problem = Self.say(error)
+        }
+    }
+
+    /// Forgets what belonged to the buddy shown before, then asks the hub for the new one. Its chat is cleared first,
+    /// so if the hub cannot be asked the screen says so instead of showing the old buddy's chat under the new name.
+    private func reloadForBuddy(_ id: String) async {
+        agentId = id
+        agentName = buddies.first { $0.id == id }?.name
+        conversationId = nil
+        bubbleColor = nil
+        agentState = nil
+        action = nil
+        mood = nil
+        held = nil
+        flourish = nil
+        poses = PoseGate()
+        lastTool = nil
+        failedAt = nil
+        limit = Self.pageSize
+        sideChat = nil
+        focus = nil
+        await start()
     }
 
     /// Works out what the header should show now and asks the gate for it; wakes again when a held pose or a

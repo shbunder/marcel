@@ -15,14 +15,12 @@ final class ContractModelTests: XCTestCase {
         XCTAssertEqual(again, value)
     }
 
-    /// `User` example from app-api.yaml.
-    func testUserDecodes() throws {
-        let user = try decode(User.self, #"{"id":"usr_01JA3E1","name":"Emma","role":"member","created_at":"2026-10-13T17:20:00Z","agent":{"id":"agt_01JA3E2","name":"Pip","look":{"animal":"fox","color":"tangerine","personality":"cheerful"}},"device_count":1,"quests_this_week":3}"#)
-        XCTAssertEqual(user.id, "usr_01JA3E1")
-        XCTAssertEqual(user.role, .member)
-        XCTAssertEqual(user.agent?.name, "Pip")
-        XCTAssertEqual(user.agent?.look?.known, KnownLook(animal: .fox, color: .tangerine, personality: .cheerful))
-        try roundTrip(user)
+    /// `Device` (app API 0.8.0): every phone shows one buddy.
+    func testDeviceNamesItsBuddy() throws {
+        let device = try decode(Device.self, #"{"id":"dev_01J9ZQ4K2B","name":"Shaun's iPhone","created_at":"2026-10-04T18:02:11Z","agent_id":"agt_01JA3E2","push":"relay","current":true}"#)
+        XCTAssertEqual(device.agentId, "agt_01JA3E2")
+        XCTAssertEqual(device.current, true)
+        try roundTrip(device)
     }
 
     /// `Agent` with a look (0.7.0) and without (the app-api.yaml example: an agent from before 0.7.0).
@@ -46,7 +44,7 @@ final class ContractModelTests: XCTestCase {
             XCTAssertNil(Look(animal: animal, color: color, personality: personality).known)
         }
         // A /me answer with such an agent reads in full: nothing else is lost.
-        let me = try decode(Me.self, #"{"user_id":"usr_1","name":"Emma","role":"member","device_id":"dev_1","agents":[{"id":"agt_1","name":"Pip","look":{"animal":"axolotl","color":"rose","personality":"cheerful"},"animal":"axolotl","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}],"push":{"apns":false,"ntfy":false}}"#)
+        let me = try decode(Me.self, #"{"user_id":"usr_1","name":"Emma","device_id":"dev_1","agents":[{"id":"agt_1","name":"Pip","look":{"animal":"axolotl","color":"rose","personality":"cheerful"},"animal":"axolotl","main_conversation_id":"cnv_1","state":{"kind":"idle"},"model_brain":"opus","model_worker":"sonnet"}],"push":{"apns":false,"ntfy":false}}"#)
         XCTAssertEqual(me.agents.map(\.name), ["Pip"])
         XCTAssertNil(me.agents.first?.drawnLook)
     }

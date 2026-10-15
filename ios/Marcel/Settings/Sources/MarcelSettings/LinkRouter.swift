@@ -47,6 +47,9 @@ public protocol LinkLookup {
 public final class LinkRouter {
     /// Where to go now. The app shows it, then calls `consume()`.
     public private(set) var destination: LinkDestination?
+    /// A tapped push about a buddy (`agent_id`, B-49): the app shows that buddy before opening the link. Cleared by
+    /// `consumeBuddy()`.
+    public private(set) var buddy: String?
     /// A link that could not be opened, in plain words. The app shows it until tapped away.
     public var notice: String?
     /// A link that arrived before the tabs were up.
@@ -89,6 +92,7 @@ public final class LinkRouter {
 
     /// A tapped push: its `deep_link`, and its words for the status screen.
     public func handle(push: PushPayload) async {
+        if let agentId = push.agentId { buddy = agentId }
         guard let text = push.deepLink else {
             // A push with no link (or a bad one) still opened the app; say so instead of doing nothing.
             fail(DeepLink.Problem.damaged.errorDescription)
@@ -126,6 +130,10 @@ public final class LinkRouter {
     /// The app has shown `destination`.
     public func consume() {
         destination = nil
+    }
+
+    public func consumeBuddy() {
+        buddy = nil
     }
 
     // MARK: Looking up

@@ -50,6 +50,24 @@ final class PairingServiceTests: XCTestCase {
         XCTAssertEqual(hubs.load(), hub)
     }
 
+    func testAPairingLinkWithABuddyStartsOnIt() async throws {
+        let link = "marcel://pair?hub=http%3A%2F%2F127.0.0.1%3A7499%2Fapi&code=K7Q2M9&buddy=agt_pip"
+        XCTAssertEqual(try PairingCode(scanned: link).buddy, "agt_pip")
+        XCTAssertNil(try PairingCode(scanned: Self.scanned).buddy, "no buddy: the hub's first live one")
+        XCTAssertNil(try PairingCode(scanned: Self.scanned + "&buddy=").buddy, "an empty buddy is none")
+        XCTAssertNil(try PairingCode(scanned: Self.scanned + "&buddy=..%2Fagt%20pip").buddy, "not an id: dropped")
+
+        final class Started: @unchecked Sendable { var ids: [String] = [] }
+        let started = Started()
+        let service = PairingService(tokenStore: MemoryTokenStore(), hubStore: MemoryHubStore(),
+                                     transport: StubTransport { _ in .json(201, Self.paired) },
+                                     startOn: { started.ids.append($0) })
+        try await service.pair(scanned: link, deviceName: "Emma's iPhone")
+        XCTAssertEqual(started.ids, ["agt_pip"])
+        try await service.pair(scanned: Self.scanned, deviceName: "Emma's iPhone")
+        XCTAssertEqual(started.ids, ["agt_pip"], "a link without a buddy names none")
+    }
+
     func testARejectedCodeShowsTheHubsMessageAndStoresNothing() async {
         let transport = StubTransport { _ in
             .json(400, #"{"code":"pairing_code_expired","message":"That pairing code has expired. Run `marcel-hub pair` again for a new one."}"#)
