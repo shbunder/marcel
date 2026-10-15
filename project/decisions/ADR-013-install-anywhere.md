@@ -60,11 +60,15 @@ chooses which buddy it shows and can switch with a tap; there are no per-person 
 - **Existing data:** each family member's agent becomes a buddy; their phones stay paired, set to show that buddy.
 
 **Buddies talk with Claude Code's cross-session messages.** Brains are named sessions on one computer, so
-`SendMessage` goes over a local socket and never through anyone's server. Brains set
-`crossSessionInbound: accept`; workers and side threads have `SendMessage` and `ListAgents` denied, so a quest
-cannot steer a brain (the reason for ADR-003). Claude Code fires no hook on an inbound message, so Marcel adds one
-thing: a plugin `PostToolUse` hook on the sender's `SendMessage` tells the hub, which shows "Marcel → Pip: …" in
-both buddies' chats. SP13 checks the hook and the deny rules before S-02.16 and S-22.13 build on them.
+`SendMessage` goes over a local socket and never through anyone's server. Brains get
+`crossSessionInbound: accept` from their `--settings` role file (SP13: a project `.claude/settings.json` may only make
+it stricter, so `accept` there is ignored and messages from a session in another permission mode are held and
+expire); workers and side threads have `SendMessage` and `ListAgents` denied (the deny is the real control: without
+it an auto-mode worker can send), so a quest cannot steer a brain (the reason for ADR-003). Marcel only shows the
+messages: SP13 found the receiver's `UserPromptSubmit` hook fires on every incoming message with the sender's name,
+and the receiver's transcript records `origin {kind: "peer", name, body, msg_id}`, so the runner's transcript reader
+(or that hook) tells the hub, which shows "Marcel → Pip: …" in both chats. Report from the receiver: on the sender
+side a reply's `to` is a socket path, not a buddy name. Evidence: `scratch/spikes/SP13-buddy-messages/RESULT.md`.
 
 Trade-off: anyone holding a paired phone can open any buddy, the owner's own included. A per-phone "stay on this
 buddy" lock is an open question for the owner, not built.

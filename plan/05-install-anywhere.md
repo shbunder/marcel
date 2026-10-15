@@ -158,8 +158,9 @@ files are deleted only after the migration has run on the NUC.
 - **Buddies message each other with Claude Code's own cross-session messages** (`SendMessage`, same machine, a local
   socket; [cross-session messaging](https://code.claude.com/docs/en/cross-session-messaging)). Brains accept them;
   workers and side threads cannot send (the tools are denied), so a quest reading a web page cannot steer a brain.
-  Marcel adds only what Claude Code lacks: no hook fires on an inbound message, so a plugin hook on the sender's
-  `SendMessage` tells the hub, which shows "Marcel → Pip: …" in both chats. SP13 checks it.
+  Marcel only shows them: SP13 found the receiver's hook and transcript carry each incoming message with the
+  sender's name, so the receiving side tells the hub, which shows "Marcel → Pip: …" in both chats. `accept` must
+  come from the brain's `--settings` role file, not its project settings (SP13).
 
 | F17 piece | Fate |
 |---|---|
