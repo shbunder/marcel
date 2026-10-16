@@ -13,8 +13,9 @@ Finish: $ARGUMENTS   (empty = the id in the branch name `story/<id>`)
    the `security-auditor` agent on the branch and fix what it marks Critical or High.
 3. **Commit:** `git status`, `git add <each file by name>`, `git commit -m "[<id>] impl: <what changed>"`,
    `git show --stat HEAD`.
-4. **Land or PR** (ADR-012). Open a PR only when the change touches the self-change path (`deploy/`,
-   `hub/src/marcel_hub/selfmod.py`, `hub/src/marcel_hub/watchdog/`, restart / redeploy / rollback), rests on a
+4. **Land or PR** (ADR-012). Open a PR only when the change touches the self-change path (`deploy/redeploy.sh`, `deploy/health.sh`, `deploy/systemd/marcel-redeploy.*`,
+   `deploy/tests/test_redeploy.sh`, `hub/src/marcel_hub/selfmod.py`, `hub/src/marcel_hub/watchdog/`, and any code that
+   restarts, redeploys, rolls back or moves the owner's live install, e.g. `marcel update` / `marcel migrate`), rests on a
    trade-off the owner has not decided, or changes a look or wording the story asks the owner to sign off.
    - **Land** (the default), with a verdict of "merge":
      ```bash

@@ -29,8 +29,11 @@ change that lands without a PR is still tested.
 Option B. `/finish-story` lands the story itself (a `--no-ff` merge commit on `main`, CI watched until
 green) unless the story needs the owner. It opens a PR instead when the change:
 
-- touches the self-change path: `deploy/`, `hub/src/marcel_hub/selfmod.py`, `hub/src/marcel_hub/watchdog/`,
-  or anything that restarts, redeploys or rolls back;
+- touches the self-change path: `deploy/redeploy.sh`, `deploy/health.sh` (the rollback decides on it),
+  `deploy/systemd/marcel-redeploy.*`, `deploy/tests/test_redeploy.sh`, `hub/src/marcel_hub/selfmod.py`,
+  `hub/src/marcel_hub/watchdog/`, or any code that restarts, redeploys, rolls back or moves the owner's live install
+  (for example `marcel update`, `marcel migrate`). Narrowed by the owner on 2026-10-16: other `deploy/` files
+  (install scripts, compose, settings files, other units) land after the verifier like any story.
 - rests on a decision with a real trade-off the owner has not made (an ADR that would be `Proposed`);
 - changes how something looks or reads to the family (the app's screens, the avatar, the icon, a
   notification's wording) and its "done when" asks for the owner's sign-off.
