@@ -33,6 +33,11 @@ def stranger(hub: ChannelHub) -> dict[str, str]:
     return {'Authorization': f'Bearer {hub.phone(STRANGER)}'}
 
 
+def other_phone(hub: ChannelHub) -> dict[str, str]:
+    """Another paired phone of the one person."""
+    return {'Authorization': f'Bearer {hub.phone()}'}
+
+
 def projects(hub: ChannelHub, agent_id: str | None = None) -> list[dict[str, Any]]:
     """The agent's live projects, the inbox last."""
     res = hub.client.get('/api/projects', params={'agent_id': agent_id or hub.agent_id})
@@ -127,10 +132,10 @@ def test_an_approval_is_read_by_id_in_any_state(hub: ChannelHub) -> None:
     assert (res.status_code, res.json()['state']) == (200, 'approved')
 
 
-def test_another_persons_approval_is_not_found(hub: ChannelHub) -> None:
+def test_any_phone_opens_a_card_and_a_missing_one_is_not_found(hub: ChannelHub) -> None:
     _, approval_id = open_card(hub)
-    res = hub.client.get(f'/api/approvals/{approval_id}', headers=stranger(hub))
-    assert (res.status_code, res.json()['code']) == (404, 'approval_not_found')
+    res = hub.client.get(f'/api/approvals/{approval_id}', headers=other_phone(hub))
+    assert res.status_code == 200 and res.json()['id'] == approval_id  # one person (ADR-013)
     res = hub.client.get('/api/approvals/apr_missing')
     assert (res.status_code, res.json()['code']) == (404, 'approval_not_found')
 
@@ -201,7 +206,7 @@ def test_nothing_moves_into_an_archived_project(hub: ChannelHub) -> None:
         assert row is not None and row.project_id != old['id']
 
 
-def test_an_item_moves_only_within_its_agent_and_only_for_its_owner(hub: ChannelHub) -> None:
+def test_an_item_moves_only_within_its_agent(hub: ChannelHub) -> None:
     mine = item(hub)
     elsewhere = new_project(hub, 'Elsewhere', other_agent(hub, hub_owner(hub)))
     res = hub.client.post(f'/api/artifacts/{mine}/move', json={'project_id': elsewhere['id']})
@@ -209,10 +214,6 @@ def test_an_item_moves_only_within_its_agent_and_only_for_its_owner(hub: Channel
     res = hub.client.post(f'/api/artifacts/{mine}/move', json={'project_id': 'prj_missing'})
     assert (res.status_code, res.json()['code']) == (404, 'project_not_found')
     energy = new_project(hub, 'Energy')
-    res = hub.client.post(
-        f'/api/artifacts/{mine}/move', json={'project_id': energy['id']}, headers=stranger(hub)
-    )
-    assert (res.status_code, res.json()['code']) == (404, 'artifact_not_found')
     res = hub.client.post('/api/artifacts/art_missing/move', json={'project_id': energy['id']})
     assert (res.status_code, res.json()['code']) == (404, 'artifact_not_found')
     assert hub.client.post(f'/api/artifacts/{mine}/move', json={}).status_code == 400

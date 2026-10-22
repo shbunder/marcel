@@ -1,9 +1,9 @@
-"""Memory per person (S-17.4, B-20, B-38).
+"""Memory per buddy (S-17.4, B-20; one person since S-22.11, ADR-013).
 
 Each agent's memory lives under `agents/<folder>/` of the one memory repo, and every way in goes
-through the caller's own agent: the app (`/api/memory`), the brain (`/brain/memory`), a worker's
-notes, and a project's notes in a worker's briefing. The owner's memory from before 0.7 is moved
-under `agents/<owner's folder>/` once, with its git history.
+through one agent: the app (`/api/memory`, the buddy the phone shows), the brain (`/brain/memory`,
+its own agent), a worker's notes, and a project's notes in a worker's briefing. The owner's memory
+from before 0.7 is moved under `agents/<owner's folder>/` once, with its git history.
 """
 
 import subprocess
@@ -26,22 +26,17 @@ from marcel_hub.models import (
     TaskLocation,
     TaskOrigin,
     TaskState,
-    User,
-    UserRole,
 )
-
-EMMA = 'usr_emma'
 
 
 class Family:
-    """The owner (the fake hub's agent, folder = its id) and Emma, whose helper Pip has slug `pip`,
-    each with a phone and a brain session."""
+    """The one person's two buddies: Marcel (the fake hub's agent) and Pip (slug `pip`), each
+    with a brain session and a phone that shows it (Emma's phone shows Pip)."""
 
     def __init__(self, hub: ChannelHub) -> None:
         self.hub = hub
         with Session(hub.engine) as s:
-            s.add(User(id=EMMA, name='Emma', role=UserRole.member))
-            pip = Agent(owner_user_id=EMMA, name='Pip', animal='fox', palette='marcel', seed='Pip',
+            pip = Agent(owner_user_id=OWNER, name='Pip', animal='fox', palette='marcel', seed='Pip',
                         slug='pip')  # fmt: skip
             s.add(pip)
             s.commit()
@@ -56,7 +51,7 @@ class Family:
         self.owner_brain = Brain(hub, hub.brain())
         self.emma_brain = Brain(hub, emmas_brain)
         self.owner_phone = {'Authorization': f'Bearer {hub.token}'}
-        self.emma_phone = {'Authorization': f'Bearer {hub.phone(EMMA)}'}
+        self.emma_phone = {'Authorization': f'Bearer {hub.phone(agent_id=self.pip)}'}
         self.root = hub.tmp_path / 'memory'
 
     def app_put(self, who: dict[str, str], path: str, content: str) -> int:
@@ -91,7 +86,7 @@ def family(tmp_path: Path) -> Iterator[Family]:
 # --- the four ways in -------------------------------------------------------------------------
 
 
-def test_the_app_shows_each_person_only_their_own_memory(family: Family) -> None:
+def test_each_phone_shows_the_memory_of_the_buddy_it_shows(family: Family) -> None:
     assert (
         family.app_put(family.owner_phone, 'MEMORY.md', 'Shaun: the alarm code is 1234.\n') == 200
     )
@@ -138,7 +133,7 @@ def test_a_workers_note_goes_to_its_own_agents_project_notes(family: Family) -> 
 def test_a_worker_starts_with_its_own_agents_project_notes(family: Family) -> None:
     owners = family.root / 'agents' / 'marcel' / 'projects'
     owners.mkdir(parents=True)
-    (owners / 'inbox.md').write_text('The owner bank PIN is 9876.\n')  # same slug, other person
+    (owners / 'inbox.md').write_text('The owner bank PIN is 9876.\n')  # same slug, other buddy
     pips = family.root / 'agents' / 'pip' / 'projects'
     pips.mkdir(parents=True)
     (pips / 'inbox.md').write_text('Pip knows the school timetable.\n')
@@ -208,11 +203,11 @@ def test_an_agent_without_a_slug_gets_one_for_good(family: Family) -> None:
     with Session(family.hub.engine) as s:
         owners = s.get(Agent, family.hub.agent_id)
         assert owners is not None and (owners.slug, owners.owner_user_id) == ('marcel', OWNER)
-        late = Agent(owner_user_id=EMMA, name='Pip', animal='fox', palette='marcel', seed='Pip')
+        late = Agent(owner_user_id=OWNER, name='Pip', animal='fox', palette='marcel', seed='Pip')
         s.add(late)
         s.commit()
         late_id = late.id
-    assert memory.folder_of(late_id) == 'pip-2'  # a member's: from its name, never `marcel`
+    assert memory.folder_of(late_id) == 'pip-2'  # a later buddy's: from its name, never `marcel`
     assert memory.folder_of(late_id) == 'pip-2'  # and the same next time
 
 

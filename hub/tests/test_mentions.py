@@ -1,5 +1,6 @@
 """Mentions (S-18.2, B-42): the composer's search, the checks on a message's mentions, and the
-brain frame that carries them. The owner (Shaun) and Emma come from `test_isolation.World`."""
+brain frame that carries them. Marcel's things come from `test_isolation.World`; Emma is a phone
+and a helper under another user id, which `mentions.py` still keeps apart."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -9,10 +10,34 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from test_channel_fakes import MESSAGE, ChannelHub, channel_hub
-from test_isolation import World
+from test_isolation import World as Buddies
 
 from marcel_hub.app import Settings, create_app
-from marcel_hub.models import Task, TaskLocation, TaskOrigin, TaskState
+from marcel_hub.auth import tokens
+from marcel_hub.conversations import ensure_main_conversation
+from marcel_hub.models import Agent, Task, TaskLocation, TaskOrigin, TaskState, inbox_id
+
+EMMA = 'usr_emma'
+
+
+class World(Buddies):
+    """Marcel's world, and Emma: a phone and her helper Eve under another user id."""
+
+    def __init__(self, client: TestClient) -> None:
+        super().__init__(client)
+        self.owner, self.agent_id = self.marcels_phone, self.marcel
+        self.conversation_id = self.marcel_main
+        with Session(self.engine) as s:
+            eve = Agent(owner_user_id=EMMA, name='Eve', animal='cat', palette='marcel', seed='Eve',
+                        slug='eve')  # fmt: skip
+            s.add(eve)
+            s.commit()
+            self.emma_main = ensure_main_conversation(s, eve).id
+            self.emma_inbox = inbox_id(s.connection(), eve.id)
+            s.commit()
+            code = tokens.create_pairing_code(s, user_id=EMMA)
+        paired = client.post('/api/pair', json={'code': code, 'device_name': 'Emma'}).json()
+        self.emma = {'Authorization': f'Bearer {paired["token"]}'}
 
 
 @pytest.fixture
@@ -33,8 +58,7 @@ def send(world: World, who: dict[str, str], conversation_id: str, **body: Any) -
 
 
 def emmas_conversation(world: World) -> str:
-    me = world.call('GET', '/api/me', world.emma).json()
-    return me['agents'][0]['main_conversation_id']
+    return world.emma_main
 
 
 # Search ---------------------------------------------------------------------------------------

@@ -340,15 +340,6 @@ class ArtifactStore:
             raise ArtifactNotFound(artifact_id)
         return art
 
-    def owner_of(self, artifact_id: str) -> str | None:
-        """The person whose agent the artifact belongs to (through its task or its project), or
-        None when there is no such artifact or it is filed nowhere."""
-        with Session(self.engine) as s:
-            row = s.get(Artifact, artifact_id)
-            agent_id = agent_of_artifact(s, row) if row is not None else None
-            agent = s.get(Agent, agent_id) if agent_id is not None else None
-            return agent.owner_user_id if agent is not None else None
-
     def page(
         self,
         task_id: str | None = None,
@@ -356,19 +347,11 @@ class ArtifactStore:
         offset: int = 0,
         limit: int = 50,
         project_id: str | None = None,
-        user_id: str | None = None,
     ) -> tuple[list[Artifact], int | None]:
-        """Newest change first. Boards are listed only when asked for (`kind=board`): a project
-        shows its own board, the Items tab shows what tasks made. With `user_id`, only that
-        person's items (those filed in a project of one of their agents). Returns the page and
-        the offset of the next one (None at the end)."""
+        """Newest change first, every buddy's items (ADR-013). Boards are listed only when asked
+        for (`kind=board`): a project shows its own board, the Items tab shows what tasks made.
+        Returns the page and the offset of the next one (None at the end)."""
         query = select(Artifact)
-        if user_id is not None:
-            query = (
-                query.join(Project, col(Project.id) == col(Artifact.project_id))
-                .join(Agent, col(Agent.id) == col(Project.agent_id))
-                .where(Agent.owner_user_id == user_id)
-            )
         if task_id is not None:
             query = query.where(Artifact.task_id == task_id)
         if project_id is not None:
@@ -762,19 +745,19 @@ class ArtifactStore:
             s.refresh(row)
             return row
 
-    def move(self, artifact_id: str, project_id: str, user_id: str) -> tuple[Artifact, str | None]:
+    def move(self, artifact_id: str, project_id: str) -> tuple[Artifact, str | None]:
         """Pin an item to another live project of its agent's. Returns the item and the project
         it came from, or None as that project when nothing changed (it was there already). Sends
         `artifact.moved`, then `artifact.updated` with its current version; the caller announces
         both projects.
 
-        Raises `ArtifactNotFound` (also for someone else's item), `MoveTargetNotFound`,
+        Raises `ArtifactNotFound` (also for an item filed nowhere), `MoveTargetNotFound`,
         `ArtifactIsBoard`, `MoveTargetArchived`."""
         with self._lock, Session(self.engine) as s:
             row = s.get(Artifact, artifact_id)
             agent_id = agent_of_artifact(s, row) if row is not None else None
             agent = s.get(Agent, agent_id) if agent_id is not None else None
-            if row is None or agent is None or agent.owner_user_id != user_id:
+            if row is None or agent is None:
                 raise ArtifactNotFound(artifact_id)
             target = s.get(Project, project_id)
             if target is None or target.agent_id != agent.id:

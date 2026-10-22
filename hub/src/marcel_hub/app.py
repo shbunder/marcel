@@ -426,7 +426,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ws.install(app)
     app.include_router(conversations.router)
     app.include_router(mentions.router)  # S-18.2: GET /api/mentions
-    users.install(app)  # S-17.1: the owner's People routes
     artifacts.install(app)  # S-04.7, after tasks: an artifact is recorded on its task
     # S-04.12: PR cards follow GitHub (read-only token); new PR artifacts are seen in the event log.
     prs = github.install(app, settings.github_token)

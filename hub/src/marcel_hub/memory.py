@@ -48,8 +48,9 @@ from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
 from marcel_hub.auth import current_device, require_device
+from marcel_hub.auth.routes import buddy_of
 from marcel_hub.auth.tokens import OWNER_USER_ID
-from marcel_hub.models import Agent
+from marcel_hub.models import Agent, Device
 
 log = logging.getLogger('marcel_hub')
 
@@ -638,9 +639,10 @@ async def _capped_body(request: Request) -> bytes | None:
 
 
 def _repo(request: Request) -> AgentMemory | None:
-    """The caller's own memory: their person's agent's (B-38). None while they have no agent."""
+    """The memory of the buddy the calling phone shows (`Device.agent_id`, app-api 0.8.1). None
+    while there is no buddy."""
     repo: MemoryRepo = request.app.state.memory
-    agent_id = request.app.state.memory_agent_of(current_device(request).user_id)
+    agent_id = request.app.state.memory_agent_of(current_device(request))
     return repo.for_agent(agent_id) if agent_id is not None else None
 
 
@@ -766,9 +768,9 @@ def install(app: FastAPI) -> MemoryRepo:
         with Session(engine) as s:
             return _folder(s, s.get(Agent, found.id))
 
-    def agent_of(user_id: str) -> str | None:
-        agent = first_agent(user_id)
-        return agent.id if agent is not None else None
+    def agent_of(device: Device) -> str | None:
+        with Session(engine) as s:
+            return buddy_of(s, device)
 
     repo = MemoryRepo(
         app.state.settings.data_dir / 'memory', folder_of=folder_of, owner_folder=owner_folder

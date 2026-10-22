@@ -57,7 +57,7 @@ names the file.
 | `apns_sandbox` | `MARCEL_APNS_SANDBOX` | `false`: Apple's production server. `true` for an app built and run from Xcode (development push environment). Check this first when pushes stop: set wrong, Apple answers `BadDeviceToken` for every push, and the hub removes each phone's token until its app opens again |
 | `github_token` | `MARCEL_GITHUB_TOKEN` | unset: PR cards are not refreshed and say the token is missing. A fine-grained, **read-only** GitHub token (Pull requests: read, Checks and Commit statuses: read) on the owner's repos (ADR-002). Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown |
 | `redeploy_flag` | `MARCEL_REDEPLOY_FLAG` | `$MARCEL_HOME/state/redeploy.flag`. The file the hub writes the merge commit to when an approved self-change is merged ("Self-changes" below). The Docker hub sets `/state/redeploy.flag`, the host's `~/marcel/state` mounted; the host's `marcel-redeploy.path` unit watches the file (S-11.2) |
-| `public_url` | `MARCEL_PUBLIC_URL` | unset. This install's own https address, without `/api` (e.g. `https://mac.tail1234.ts.net`; `https://marcel-bot.com` on the NUC, set in `deploy/docker-compose.yml`). Pairing links use `<public_url>/api` and cloud quests report to `<public_url>/api/session/report` (S-22.2). Unset: the hub starts and logs "No public address yet: run `marcel connect`" once; `marcel-hub pair` and `setup` make no code, `POST /api/users/{id}/pairing-codes` answers 409 `no_public_url`, and no cloud quest starts. `http://` or a trailing `/api` stops the hub at start |
+| `public_url` | `MARCEL_PUBLIC_URL` | unset. This install's own https address, without `/api` (e.g. `https://mac.tail1234.ts.net`; `https://marcel-bot.com` on the NUC, set in `deploy/docker-compose.yml`). Pairing links use `<public_url>/api` and cloud quests report to `<public_url>/api/session/report` (S-22.2). Unset: the hub starts and logs "No public address yet: run `marcel connect`" once; `marcel-hub pair` and `setup` make no code, and no cloud quest starts. `http://` or a trailing `/api` stops the hub at start |
 | `tz` | `MARCEL_TZ` | `Europe/Brussels`. The owner's time zone (IANA name), and the only one the hub uses: the built-in digests run in it (ones the owner has not edited move when it changes), their facts and the usage guard's pushes show times in it, and the brain's nightly rollover runs at 04:00 in it. The process's own `TZ` is never used. A name that is not a time zone stops the hub at start |
 
 `MARCEL_CONFIG` moves the config file itself (tests and the Docker hub use it). `MARCEL_HOME` moves the root of every default.
@@ -75,7 +75,7 @@ e = db.make_engine('/tmp/new.db'); command.revision(db.alembic_config(e), messag
 A test fails if the models and the migrations disagree. Timestamps are timezone-aware UTC.
 
 **Stored for app-api 0.7, not used yet** (migration 0010, S-04.15): the `user` table (`id`, `name`,
-`role` owner|member, `created_at`); on `agent` the look (`look_animal`, `look_color`,
+`created_at`; one row since 0014, see Buddies); on `agent` the look (`look_animal`, `look_color`,
 `look_personality`, the contract's `look`), `onboarded_at`, `archived_at` and a unique `slug` that a
 rename never changes (the owner's agent from before 0.7 is `marcel`); on `message`
 `reply_to_message_id` and `mentions_json` (the contract's `mentions`, `[]` by default); on `project`
@@ -163,8 +163,8 @@ marcel-hub agent list
 
 `setup` (S-17.1) is the first step on a new NUC and is safe to run again. It makes:
 
-- **the owner** (`usr_owner`, role `owner`, named `MARCEL_OWNER_NAME`): the person whose Claude login
-  the NUC uses (B-37, B-38). The hub also makes this row at every start-up, so phones paired before
+- **the owner** (`usr_owner`, named `MARCEL_OWNER_NAME`): the one person the install belongs to,
+  whose Claude login it uses (B-37, ADR-013). The hub also makes this row at every start-up, so phones paired before
   0.7 keep working.
 - **the owner's agent**, named `MARCEL_AGENT_NAME` (else `Marcel`, or `--agent-name`), with slug
   `marcel`, Marcel's look (giraffe, rose, professional), `persona_path` `<brain_cwd>/CLAUDE.md`, and its
@@ -173,38 +173,44 @@ marcel-hub agent list
 - **a QR code** that pairs the owner's first phone, only while the owner has none
   (`marcel-hub pair` pairs more).
 
-Family members are added from the owner's app: `POST /api/users` makes the person (role `member`)
-and their own agent, main conversation and Inbox; `POST /api/users/{id}/pairing-codes` makes a code
-that pairs a phone to them; `DELETE /api/users/{id}` signs out their phones at once, stops their
-quests and archives their agent (their chats and notes stay; the owner cannot be removed, 409). All
-four are owner-only (`require_owner` in `auth/deps.py`; app-api 0.8.0 removed these routes and the
-`x-owner-only` mark, and S-22.11 removes them here): a member
-gets 403 `owner_only`. The pairing link names `<public_url>/api`, like `marcel-hub pair`'s default; without
-`public_url` it answers 409 `no_public_url`. A member's brain workspace comes with S-17.7; a look picked from the name
-when none is given comes with S-19.2.
+`marcel-hub agent create` makes another buddy (`--another`; each one gets its own brain). `setup`
+is the way to make the first one. The app's own "new buddy" route comes with S-22.27.
 
-`marcel-hub agent create` still makes an extra agent for the owner (`--another`; each agent gets its
-own brain). `setup` is the way to make the first one.
+## Buddies (ADR-013)
 
-## One person never sees another's (B-38)
+An install belongs to one person. A **buddy** is an agent: its own brain, chat, memory and look.
+There are no people, roles or owner-only routes any more (S-22.11, app-api 0.8.0): every paired
+phone reaches every buddy's tasks, items, conversations, projects, schedules and approval cards,
+and can answer any card, a change to Marcel too. What keeps a stranger out is the device token:
+`tests/test_isolation.py` calls every route with an id in its path (read from the app itself, so a
+new one fails until it is classified there) on a real object without a token and expects 401, and
+proves that taking the token check off any one router turns it red.
 
-Every app route checks the caller's person (S-17.2). Another person's task, item, conversation,
-message, project, schedule, approval, agent or phone answers 404, exactly like one that does not
-exist; the owner-only `/users…` routes answer a member 403. Lists (`/tasks?agent_id=`, `/artifacts`,
-`/approvals`) hold only the caller's own. `tests/test_isolation.py` tries every route with an id
-in its path, read from the app itself: a new one fails until it is classified there.
+**What this means for you.** Since this update, every paired phone can approve a change to Marcel
+itself and can remove any other paired phone. Only pair phones you trust. To check which phones are
+paired, ask the hub for `GET /api/devices` with any phone's token (each entry has the phone's name,
+when it was paired and when it was last seen). To remove one, send `DELETE /api/devices/{id}`: its
+token stops working at once and it must be paired again. There is no app screen or command for this
+yet.
 
-- **Events** (`/api/ws`) go to the person whose agent the task, project or item belongs to
-  (`ws.OwnerPublisher.person`, which also reads the nested `artifact`/`task`/`project` objects and
-  `to_project_id`); an event that names none (usage) goes to the owner. A self-change card's
-  `approval.*` events go to the owner as well as the helper's person.
-- **Pushes** for nobody in particular (usage, something broke) reach the owner's phones only.
-- **Stray items:** one with no task and no project is filed in the owner's Inbox, never a member's.
-- **`/marcel-adopt`** hands a session to the owner's agent (only the owner has an adopt token).
-- **Self-changes:** a card for a PR on Marcel is the owner's, whoever's helper opened it: it shows
-  in the owner's chat and approvals and pushes to the owner; a member may look but answering is 403
-  `owner_only`.
-- **Memory** is per agent (see Memory).
+- **A phone's buddy** (`Device.agent_id`, sent on every `Device`): set at pairing to the first buddy
+  (live, with a main chat, oldest id first). When that buddy is archived, the phone shows the first
+  live one instead. `/api/memory` follows it. Changing it from the app (`PATCH /devices/{id}`) and
+  pushes that follow it come with S-22.27.
+- **`GET /api/me`** lists every live buddy with a main chat, the first one first; archived buddies
+  are left out. It has no `role`.
+- **Events** (`/api/ws`) all go to the one person's event log, so every phone gets every buddy's.
+- **Stray items:** one with no task and no project is filed in the first buddy's Inbox.
+- **`/marcel-adopt`** hands a session to the first live buddy.
+- **Self-changes:** a card for a PR on Marcel shows in the chat of the buddy whose quest opened it.
+- **Memory** is per buddy (see Memory).
+- **From people to buddies** (migration 0014): every family member was folded into the owner's row.
+  Their agents became buddies and kept their slug, so their memory and brain folders stay. Each
+  phone stayed paired and shows the first live agent of the person it belonged to, so a family
+  member's phone still opens their own buddy. Their unused pairing codes and their stored
+  WebSocket events were dropped: a phone that reconnects with its old `?since=` gets the owner's
+  events after that number, or `resync.required` when the owner's log is shorter. The downgrade gives the columns back but cannot tell the
+  people apart again.
 
 ## Pairing a phone
 
@@ -317,10 +323,10 @@ anyone else gets a 404 `conversation_not_found`.
   message has none.
 - `GET /api/mentions?q=&kind=` (`mentions.py`): your own quests, projects and items whose title
   holds `q` (any case, `%` and `_` taken literally), newest change first, at most 20. Archived
-  quests and projects, and boards, are left out. Another person's are never listed.
+  quests and projects, and boards, are left out.
 - `GET /api/messages/{id}`: one message in any of your conversations, for a
-  `marcel://message/<id>` deep link (`conversation_id` says main or side thread). Someone else's
-  message answers 404 `message_not_found`, like one that does not exist.
+  `marcel://message/<id>` deep link (`conversation_id` says main or side thread). A missing
+  message answers 404 `message_not_found` (a check by user id, which always passes now that there is one user; S-22.27 removes it).
 - `POST /api/messages/{id}/thread`: opens the side thread on a message (201), or returns the one it
   already has (200). A thread on a milestone or approval gets that message's `task_id`, and
   belongs to that task (see "Task threads" below).
@@ -575,7 +581,7 @@ code is in `src/marcel_hub/artifacts/` (`store.py`, `routes.py`). Boards are lis
   the new and the old project, and both boards are rebuilt. Moving it to the project it is in
   answers 200 and sends nothing. A board stays with its project (409 `artifact_is_board`), an
   archived project takes nothing (409 `project_archived`), another agent's or a missing project is
-  404 `project_not_found`, and someone else's item is 404 `artifact_not_found`. No brain turn.
+  404 `project_not_found`, and a missing item is 404 `artifact_not_found`. No brain turn.
 - **Migration 0006** added `artifact_version` (version 1 for every existing artifact), the current
   version on `artifact`, `artifact_id` on `message`, and a board for every project. Its downgrade
   drops boards and `artifact` messages and keeps every other row. Older code reads only `<id>`, so
@@ -720,8 +726,8 @@ Needs `jsonschema` at run time and `contracts/dashboard.schema.json` next to `hu
 
 ## Agent settings: `GET` and `PATCH /api/agents/{agent_id}`
 
-S-17.3 (B-40, B-44), `hub/src/marcel_hub/agents/`. Only the caller's own agent: another person's
-answers 404 `agent_not_found`, like one that does not exist.
+S-17.3 (B-40, B-44), `hub/src/marcel_hub/agents/`. Any buddy; an unknown id
+answers 404 `agent_not_found` (a check by user id, which always passes now that there is one user; S-22.27 removes it).
 
 - `GET` gives the contract's `Agent`, with `look` once it has one and `onboarded_at` once set (`/api/me`
   lists agents the same way).
@@ -740,14 +746,14 @@ S-19.2 (B-44), `hub/src/marcel_hub/avatar/`. The hub draws avatars with the Pixe
 (`shared/avatar/zoo`, a path dependency in `pyproject.toml`; the Docker image copies it in and its
 build fails if it cannot draw a sheet).
 
-- **The sheet**, for the caller's own agent (another person's is 404): the sheet's JSON
+- **The sheet**, for any buddy (an unknown id is 404): the sheet's JSON
   (`contracts/avatar-sheet.schema.json`) by default, its PNG when `Accept` asks for `image/png` first.
   Both carry the same `ETag`, a hash of the look and of the zoo's drawing code, which is also
   `avatar_etag` in every `agent.updated`. `If-None-Match` with it answers 304. `Cache-Control:
   private, no-cache`, so the phone keeps the sheet but asks again.
-- **The look**: the agent's `look`. A new person's agent made without one gets one picked from its
-  name by the zoo (`avatar.store.look_from_name`: the same name always gives the same look), and at
-  start-up every agent still without one gets one (`users.give_missing_looks`): the owner's agent
+- **The look**: the agent's `look`. An agent without one gets one picked from its name by the zoo
+  (`avatar.store.look_from_name`: the same name always gives the same look): at start-up every
+  agent still without one gets one (`users.give_missing_looks`): the owner's agent
   Marcel's rose giraffe, any other one from its name. Should one still have none, it draws from its
   older `animal` and `palette` (unknown ones become giraffe and `natural`), professional.
 - **A preview** of any look, for the picker: `?animal=&color=&personality=&mood=` (all checked
@@ -788,8 +794,8 @@ on first use. The code is `src/marcel_hub/memory.py`.
 
 **One folder per agent (S-17.4, B-38).** Each agent's memory is `agents/<slug>/`: `MEMORY.md`,
 `memory/…` and `projects/<slug>.md`. Every way in uses the caller's own agent, with the paths shown
-without the prefix, so nothing else changes: the app (`/api/memory`: the person's oldest live agent;
-a person has one helper today), the brain's `memory_read`/`memory_write` (its own agent), a worker's
+without the prefix, so nothing else changes: the app (`/api/memory`: the buddy the phone shows,
+`Device.agent_id`), the brain's `memory_read`/`memory_write` (its own agent), a worker's
 notes and briefing (its task's agent), and the brain's start-up notes. Commits name the full path,
 e.g. `memory: agents/marcel/MEMORY.md (app)`. An agent without a slug (an older `agent create`)
 gets one the first time its memory is needed, for good, as `marcel-hub setup` would name it (the
@@ -914,8 +920,8 @@ while the owner has no agent, and never overwrites a file: a non-empty clash is 
   and `done_7d` (done, last changed in the past 7 days). `updated_at` is the latest change to the
   project or any task in it. Every `task.created`/`task.updated` is followed by `project.updated`
   for that task's project.
-- **Owner only.** Someone else's project answers 404 `project_not_found`, someone else's agent
-  404 `agent_not_found`, and listing it gives `[]`.
+- **Unknown ids.** A missing project answers 404 `project_not_found`, a missing agent 404
+  `agent_not_found` (a check by user id, which always passes now that there is one user; S-22.27 removes it).
 - **Board.** Made with the project under `board_artifact_id`; see *Project boards*.
 
 ## Push notifications
@@ -1212,9 +1218,9 @@ A worker's permission prompt becomes an approval card: the task goes to `needs_y
 the phone, and an approval push. The same `request_id` on the same task never opens a
 second card, whatever state the card is in.
 
-- `GET /api/approvals?state=` lists your cards, open ones first.
+- `GET /api/approvals?state=` lists every buddy's cards, open ones first.
 - `GET /api/approvals/{id}` reads one card in any state, for a `marcel://approval/<id>` deep link
-  (404 `approval_not_found` for a missing card or someone else's).
+  (404 `approval_not_found` for a missing card). Any paired phone sees and answers every card.
 - `POST /api/approvals/{id}` with `{"decision": "approve" | "deny", "note"?}` answers a card and
   sends the session its `permission_decision`. A denial's note follows as a `steer`. A
   self-change card (tool `self_change`, no `request_id`) is answered by `selfmod.py` instead
@@ -1311,15 +1317,15 @@ fork), `Direct(target)` (straight to a task, no brain turn) or `Store` (keep it 
 `brain.py` keeps exactly one brain session per agent (S-06.2, B-01). It runs only when `brain_cwd`
 is set and the hub has a runner.
 
-- **A brain per person (S-17.7).** Each live agent's brain runs in its own folder. The owner's first
+- **A brain per buddy (S-17.7).** Each live agent's brain runs in its own folder. The owner's first
   agent (`marcel`, and any agent made before slugs) keeps `brain_cwd`. Every other agent's brain runs in
   `~/marcel/brains/<slug>`: before starting it, the keeper asks the runner to make that folder ready
-  (`POST /brains`: render `brain/` with the agent's name, the person's name, and the look's personality
+  (`POST /brains`: render `brain/` with the agent's name, the owner's name, and the look's personality
   and animal (S-17.8: Pip, a rabbit, calls itself a rabbit), link
   its memory to `agents/<slug>/`, install the plugin, trust it; safe to repeat). If the runner refuses
   or is down, nothing starts and the usual backoff and alert below take over. Every brain still runs
   on the owner's Claude login and shares the usage guard.
-- **Archived agents** (a removed person, S-17.1) get no brain: the keeper starts none and stops one
+- **Archived agents** get no brain: the keeper starts none and stops one
   that still runs. Their schedules do not fire and they get no built-in digests.
 
 - **When it checks.** At start, after every runner event and every runner (re)connect, and every

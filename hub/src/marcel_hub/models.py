@@ -24,11 +24,6 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class UserRole(StrEnum):
-    owner = 'owner'
-    member = 'member'
-
-
 class ConversationKind(StrEnum):
     main = 'main'
     side = 'side'
@@ -134,12 +129,11 @@ def _json() -> Any:
 
 
 class User(SQLModel, table=True):
-    """A person who uses Marcel (B-37): the owner, or a family member the owner added. The owner
-    keeps the id `usr_owner`; its row is made at start-up (S-17.1), not by the migration."""
+    """The one person an install belongs to (ADR-013), `usr_owner`; its row is made at start-up
+    (S-17.1), not by a migration. Migration 0014 folded any family members into it."""
 
     id: str = Field(default_factory=lambda: new_id('usr'), primary_key=True)
     name: str
-    role: UserRole
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -175,6 +169,9 @@ class Device(SQLModel, table=True):
     ntfy_topic: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     last_seen: datetime | None = None
+    # The buddy this phone shows (app-api 0.8.0 `Device.agent_id`, B-49): set at pairing and by
+    # migration 0014. `auth.routes.buddy_of` falls back to the first live buddy when it is gone.
+    agent_id: str | None = None
 
 
 class PairingCode(SQLModel, table=True):
@@ -517,14 +514,10 @@ def _file_in_inbox(_mapper: Any, connection: Connection, task: Task) -> None:
 
 
 # auth.tokens.OWNER_USER_ID (auth/ imports models, so it is spelled out here once).
-OWNER_ID = 'usr_owner'
-
-
 @event.listens_for(Artifact, 'before_insert')
 def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
     """An artifact belongs to its task's project. One with no task and no project goes to the
-    inbox of the owner's first agent, never a family member's (B-38, S-17.2); with no such agent
-    it stays unfiled. Its author
+    inbox of the first buddy (the oldest id); with no buddy it stays unfiled. Its author
     (`updated_by`) is its task's title unless the caller named one."""
     if art.current_version == 1:
         art.updated_at = art.created_at
@@ -539,9 +532,7 @@ def _file_artifact(_mapper: Any, connection: Connection, art: Artifact) -> None:
     if art.project_id is not None or art.task_id is not None:
         return
     agents = Agent.__table__  # type: ignore[attr-defined]
-    first = connection.execute(
-        select(agents.c.id).where(agents.c.owner_user_id == OWNER_ID).order_by(agents.c.id).limit(1)
-    ).scalar()
+    first = connection.execute(select(agents.c.id).order_by(agents.c.id).limit(1)).scalar()
     if first is not None:
         art.project_id = inbox_id(connection, first)
 
