@@ -114,3 +114,5 @@ NUC moves there from `~/marcel` in `marcel migrate` (S-22.24).
   3. No per-phone buddy lock for now; any paired phone may open any buddy.
   4. Self-changes are off on colleagues' installs; they update with `marcel update`.
   5. Extra computers (wave 7) wait until waves 5–6 work on a colleague's Mac.
+  6. (2026-10-22) Every paired phone may approve changes to Marcel itself; no per-phone approval switch. A
+     self-change still needs the owner's merge on GitHub (ADR-005).
