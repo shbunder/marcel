@@ -71,7 +71,8 @@ DERIVED = {
 # ones kept under another name are in DERIVED).
 # Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`, stored since (0012).
 # Contract 0.8.0 (S-02.13) added the fields below; each names the story that stores it.
-PENDING: dict[str, set[str]] = {}
+# Contract 0.8.2 (S-02.16): a buddy message's two buddies; S-22.13 stores them.
+PENDING: dict[str, set[str]] = {'Message': {'from_agent_id', 'to_agent_id'}}
 # Fields app-api 0.8.0 (S-02.13, ADR-013) removed that the hub still sends, with the story that
 # stops sending them. `served_contract` lets the response checks accept them until then;
 # test_auth.py checks each one is still sent, so this list can only shrink.
@@ -93,9 +94,9 @@ def served_contract(api: dict[str, Any]) -> dict[str, Any]:
     return api
 
 
-# Contract 0.7.3's workflow event types are stored since S-04.16. Empty until a contract adds
-# a value.
-PENDING_ENUM_VALUES: dict[str, set[str]] = {}
+# Contract 0.7.3's workflow event types are stored since S-04.16. Contract 0.8.2 (S-02.16) adds
+# `MessageKind.buddy`; S-22.13 stores it.
+PENDING_ENUM_VALUES: dict[str, set[str]] = {'MessageKind': {'buddy'}}
 MODELS = {
     'Agent': models.Agent,
     'Project': models.Project,

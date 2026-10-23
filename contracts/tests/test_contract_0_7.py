@@ -55,7 +55,7 @@ def refused(validator: Draft202012Validator, instance: Any) -> None:
 
 
 def test_the_versions_were_bumped() -> None:
-    assert load_yaml('app-api.yaml')['info']['version'] == '0.8.1'  # 0.8.1: memory agent_id
+    assert load_yaml('app-api.yaml')['info']['version'] == '0.8.2'  # 0.8.2 in S-02.16
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'  # 0.1.14 in S-02.13
 
 

@@ -24,7 +24,7 @@ def flat(text: str) -> str:
 
 
 def test_the_version_is_0_8_1() -> None:
-    assert api()['info']['version'] == '0.8.1'
+    assert api()['info']['version'] == '0.8.2'  # 0.8.2 in S-02.16
     assert '**0.8.1** (additive)' in api()['info']['description']
 
 

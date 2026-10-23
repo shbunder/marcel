@@ -20,7 +20,7 @@ def test_the_versions_were_bumped() -> None:
     # Bumped again by test_contract_0_7.py and test_contract_s02_9.py.
     assert load_yaml('runner-api.yaml')['info']['version'] == '0.1.14'  # 0.1.14 in S-02.13
     assert load_yaml('session-api.yaml')['info']['version'] == '0.1.7'  # 0.1.7 in S-02.10
-    assert load_yaml('brain-api.yaml')['info']['version'] == '0.1.5'  # 0.1.5 in S-02.13
+    assert load_yaml('brain-api.yaml')['info']['version'] == '0.2.0'  # 0.2.0 in S-02.16
 
 
 # session-api.yaml: report tokens (S-07.1) -------------------------------------------------------
