@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Apple's push service (B-18). `development` for builds run from Xcode; exporting for TestFlight or the App
+	     Store turns it into `production`. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- The app's own group first, so the device token and the relay's send secret stay where they always were (the
+	     first group is where new items go). Then the group shared with the Notification Service Extension, which
+	     holds only the push key pair (KeychainPushKeyStore, S-22.16). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(AppIdentifierPrefix)marcel.push</string>
+	</array>
+</dict>
+</plist>

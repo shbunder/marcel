@@ -1,0 +1,7 @@
+// Marcel's push relay (S-22.16, relay/README.md step 8): the address `npx wrangler deploy` printed for the owner's
+// Worker. The app registers there when notifications are turned on and gives the hub the handle it gets. Empty: the
+// build has no relay, and phones use APNs directly (the owner's own key) or ntfy.
+//
+// An xcconfig reads "//" as the start of a comment, so write the address with "$()" between the two slashes:
+//   MARCEL_RELAY_URL = https:/$()/marcel-relay.<you>.workers.dev
+MARCEL_RELAY_URL =

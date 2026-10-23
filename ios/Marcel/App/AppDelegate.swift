@@ -3,6 +3,17 @@ import MarcelSettings
 import UIKit
 import UserNotifications
 
+/// Marcel's push relay for this build (S-22.16): the address from `MARCEL_RELAY_URL` (`Config/Relay.xcconfig`), and
+/// Apple's sandbox for a development build. Nil when the build has no relay address: then the phone uses APNs directly
+/// or ntfy, as before.
+enum AppPush {
+    #if DEBUG
+    static let relay = RelaySetup.live(sandbox: true)
+    #else
+    static let relay = RelaySetup.live(sandbox: false)
+    #endif
+}
+
 /// Set up before any screen: the notification centre's delegate and the push categories, so a push tapped while the
 /// app was not running is delivered to `PushHandler` (and routed by `LinkRouter`) instead of being lost. Also passes
 /// the APNs device token on to Settings.

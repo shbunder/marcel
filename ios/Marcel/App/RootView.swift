@@ -202,7 +202,14 @@ struct MainTabs: View {
             // Also forgets the log and the notebook's drafts when the phone is unpaired.
             rollovers.attach(to: connection)
             APNsRegistrar.shared.onToken = { [settings, hub] token in
-                Task { _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token)) }
+                Task {
+                    // Through the relay (S-22.16): register again only for a token the relay does not have yet.
+                    if let relay = AppPush.relay, relay.inUse {
+                        await relay.tokenChanged(token, deviceId: hub.deviceId, service: settings)
+                    } else {
+                        _ = try? await settings.setPush(deviceId: hub.deviceId, target: .init(kind: .apns, apnsToken: token))
+                    }
+                }
             }
             await router.attach(LiveLinkLookup(cache: connection.cache, service: settings,
                                                mainConversationId: { [chat] in chat.conversationId }))
@@ -249,7 +256,8 @@ struct MainTabs: View {
 
     /// Settings, telling the chat header the agent's name (after a rename too).
     private func settingsModel() -> SettingsModel {
-        let model = SettingsModel(service: settings, tokens: APNsRegistrar.shared, thisDevice: hub.deviceId)
+        let model = SettingsModel(service: settings, tokens: APNsRegistrar.shared, relay: AppPush.relay,
+                                  thisDevice: hub.deviceId)
         model.nameChanged = { [chat] name in chat.agentName = name }
         return model
     }

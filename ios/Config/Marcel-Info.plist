@@ -29,6 +29,13 @@
 			</array>
 		</dict>
 	</dict>
+	<!-- Marcel's push relay (S-22.16): set in Config/Relay.xcconfig. Empty means this build has no relay. -->
+	<key>MarcelRelayURL</key>
+	<string>$(MARCEL_RELAY_URL)</string>
+	<!-- The Keychain group shared with the Notification Service Extension (Config/Marcel.entitlements). Without a
+	     team (an unsigned simulator build) the prefix is empty and the app keeps the key in its own group. -->
+	<key>MarcelPushKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)marcel.push</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- The mock hub (127.0.0.1:7499) and a hub on the home network speak plain HTTP. -->

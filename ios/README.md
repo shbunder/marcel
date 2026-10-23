@@ -17,7 +17,10 @@ ios/
                         onboarding and Settings, its own package: see Marcel/Look/README.md), Welcome/ (getting
                         in: welcome and pairing, "Meet your helper", the Face ID lock, sign out; its own package:
                         see Marcel/Welcome/README.md)
-  Config/               the app's Info.plist additions (local-network HTTP for the mock hub)
+  Config/               the app's Info.plist additions (local-network HTTP for the mock hub), the entitlements of the
+                        app and its extension, and Relay.xcconfig (the push relay's address)
+  NotificationService/  the Notification Service Extension: opens pushes sealed for this phone (see "Pushes through
+                        the relay")
   MarcelKit/            Swift package: API client, pairing, Keychain, WebSocket stream, SwiftData cache
   PixelKit/             Swift package: the pixel-classic design system (tokens, fonts, components; see its README)
   AvatarKit/            Swift package: each agent's sprite player (see AvatarKit/README.md)
@@ -141,6 +144,57 @@ The shared `Marcel` scheme lists `MarcelKitTests` for Xcode's Test action. That 
   or a notification about another buddy. It is kept in UserDefaults (with the buddy shown before, for the chat's
   long-press), so an offline start knows it. Quests and Map show only that buddy's projects and quests
   (`CurrentBuddy.rows`); the services pick it from `/me` with `CurrentBuddy.chosen(from:)`.
+- **Push key** — `PushKey.swift` (S-22.16): the phone's X25519 key pair (`KeychainPushKeyStore`), opening a
+  `SealedPush` (`PushSeal.open`), and what the extension does with a push (`SealedNotification.open`). See below.
+
+## Pushes through the relay
+
+Every install gets pushes through Marcel's push relay (ADR-013 question 2, `relay/README.md`), so no install needs
+its own Apple key. What the phone does (S-22.16):
+
+1. **Turning notifications on** (Settings → Notifications → Turn on), when `/me` says `push.relay` and this build
+   has a relay address: the app asks Apple for a push token, makes an X25519 key pair (CryptoKit; the private half
+   stays in the Keychain), registers with the relay (`POST /v1/register`, `sandbox` true only for a build run from
+   Xcode), and gives its hub `PUT /devices/{id}/push` `{kind: relay, relay_url, handle, send_secret, device_key}`.
+   The handle and send secret are kept in the Keychain too, for signing out.
+2. **When the relay cannot be used** (no answer, busy, a refusal, or the Keychain would not keep the key), the
+   phone uses APNs directly if the hub has its own key, else ntfy, and Settings says "Marcel's push service didn't
+   answer. Notifications through ntfy: install the ntfy app." A hub that refuses the target gets its error shown,
+   and the new handle is forgotten at the relay again.
+3. **A push arrives** as "Marcel · You have news" with the sealed notification beside it. The Notification Service
+   Extension (`NotificationService/`, bundle `com.shbunder.marcel.NotificationService`) opens it with the private
+   key and shows the real title and body; the category (Approve and Deny on an approval) and the link (where a tap
+   goes, and which buddy it opens) come from inside the box. If anything fails (no key, another phone's key, a
+   corrupted box, content the contract does not allow) it stays "You have news", with no actions and no link. A push
+   that was not sent through the relay (APNs directly) is left as it came. Nothing logs a push's words.
+4. **A new Apple token** (Apple can change it): the app registers again and forgets the old handle, but only when the
+   token differs from the one the relay has, so a normal launch spends no registration.
+5. **Sign out** forgets the handle at the relay (`DELETE /v1/handles/{handle}`, best effort: a relay that is down
+   never stops a sign out), then the registration and the key pair.
+
+**The Keychain group.** The key pair lives in `$(AppIdentifierPrefix)marcel.push`, a group the app shares with the
+extension (`Config/Marcel.entitlements`, `Config/NotificationService.entitlements`); the app lists its own group
+first, so the device token stays out of the extension's reach. The build writes the full group into each
+Info.plist (`MarcelPushKeychainGroup`). An unsigned simulator build has no team prefix, so there the key stays in the
+app's own group and the extension cannot open pushes (the simulator gets no remote pushes anyway).
+
+**The relay's address** is `MARCEL_RELAY_URL` in `Config/Relay.xcconfig`, read from Info.plist (`MarcelRelayURL`).
+Empty (as checked in, until the owner deploys the relay): the build has no relay, and phones use APNs directly or ntfy.
+An xcconfig reads `//` as a comment, so write it `https:/$()/marcel-relay.<you>.workers.dev`.
+
+**Before the first TestFlight build with the relay** (the owner, once, with the Apple developer account):
+
+1. Deploy the relay (`relay/README.md`) and put its address in `Config/Relay.xcconfig`.
+2. In Xcode, select the project → each target (**Marcel**, **NotificationService**) → Signing & Capabilities: pick
+   your team (this sets `DEVELOPMENT_TEAM`). Xcode registers both bundle ids and their capabilities (Push
+   Notifications for the app; Keychain Sharing with the group `marcel.push` for both) on the developer site. If it
+   asks, let it add the capabilities the entitlements files already list.
+3. Archive and upload as usual. The extension is embedded in the app (Embed Foundation Extensions) and is
+   uploaded with it.
+
+The extension target was added by editing `Marcel.xcodeproj/project.pbxproj` in the style the file already uses
+(Xcode could not be driven from the agent's session); `make -C ios app` builds it with the app. Open the project in
+Xcode once to confirm it shows both targets.
 
 ## Talking to the mock hub
 
