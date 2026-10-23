@@ -23,14 +23,9 @@ PENDING_OPERATIONS: dict[tuple[str, str], str] = {
     ('POST', '/api/pairing-codes'): 'S-22.27',
 }
 # App API operations the contract removed and the hub still serves, with the work that removes
-# them. app-api 0.8.0 (S-02.13, ADR-013) dropped the people model; S-22.11 removes the routes.
+# them. app-api 0.8.0 (S-02.13, ADR-013) dropped the people model; S-22.11 removed the routes.
 # The last test fails as soon as one is gone, so this list can only shrink.
-RETIRED_OPERATIONS: dict[tuple[str, str], str] = {
-    ('GET', '/api/users'): 'S-22.11',
-    ('POST', '/api/users'): 'S-22.11',
-    ('DELETE', '/api/users/{}'): 'S-22.11',
-    ('POST', '/api/users/{}/pairing-codes'): 'S-22.11',
-}
+RETIRED_OPERATIONS: dict[tuple[str, str], str] = {}
 # The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
 # with its own `servers`, served at the hub's root). Each list can only shrink.
 PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}

@@ -27,7 +27,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
 
 from marcel_hub.auth.tokens import OWNER_USER_ID, hash_secret
-from marcel_hub.models import Agent, AppEvent, Device, Project, Task, utcnow
+from marcel_hub.models import AppEvent, Device, utcnow
 
 # Enough for a phone that was offline for a day or two; older gaps ask for a resync.
 KEEP_EVENTS = 2000
@@ -258,44 +258,16 @@ async def event_stream(ws: WebSocket) -> None:
 class OwnerPublisher:
     """Carries events from code that publishes without a database session of its own (the task
     registry, and through it the runner client; the project store; the usage guard) into the
-    event log, for the person they belong to (B-38): a task's or project's agent's owner. An
-    event that names no task or agent (usage) goes to the hub's owner, `user_id`."""
+    event log of the install's one person, `user_id` (ADR-013): every phone gets every buddy's
+    events."""
 
     def __init__(self, events: EventLog, user_id: str = OWNER_USER_ID) -> None:
         self.events = events
         self.user_id = user_id
 
-    def person(self, session: Session, type: str, data: dict[str, Any]) -> str:
-        """Whose agent the event is about: its own `agent_id`, else its task's, else its project's
-        (also inside a nested `task`, `artifact` or `project` object, as `artifact.updated` has
-        them; `artifact.moved` names `to_project_id`). None of these: the owner."""
-        places = [data] + [
-            data[k] for k in ('artifact', 'task', 'project') if isinstance(data.get(k), dict)
-        ]
-        agent_id: Any = next((p['agent_id'] for p in places if p.get('agent_id')), None)
-        if agent_id is None:
-            task_id = next((p['task_id'] for p in places if p.get('task_id')), None)
-            if task_id is None and type.startswith('task.'):
-                task_id = data.get('id')
-            task = session.get(Task, task_id) if isinstance(task_id, str) else None
-            agent_id = task.agent_id if task is not None else None
-        if agent_id is None:
-            project_id = next(
-                (
-                    p.get('project_id') or p.get('to_project_id')
-                    for p in places
-                    if p.get('project_id') or p.get('to_project_id')
-                ),
-                None,
-            )
-            project = session.get(Project, project_id) if isinstance(project_id, str) else None
-            agent_id = project.agent_id if project is not None else None
-        agent = session.get(Agent, agent_id) if isinstance(agent_id, str) else None
-        return agent.owner_user_id if agent is not None else self.user_id
-
     def publish(self, type: str, data: dict[str, Any]) -> None:
         with Session(self.events.engine) as session:
-            self.events.publish(session, self.person(session, type, data), type, data)
+            self.events.publish(session, self.user_id, type, data)
 
 
 def install(app: FastAPI) -> None:

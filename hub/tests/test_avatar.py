@@ -241,19 +241,6 @@ def test_the_zoo_draws_every_look_the_contract_offers() -> None:
 # Looks from names (S-19.2, for agents made without a look) -----------------------------------
 
 
-def test_a_new_persons_agent_without_a_look_gets_one_from_its_name(hub: ChannelHub) -> None:
-    res = hub.client.post('/api/users', json={'name': 'Emma', 'agent': {'name': 'Pip'}})
-    assert res.status_code == 201, res.json()
-    with Session(hub.engine) as s:
-        pip = s.exec(select(Agent).where(Agent.name == 'Pip')).one()
-        look = {'animal': pip.look_animal, 'color': pip.look_color,
-                'personality': pip.look_personality}  # fmt: skip
-    assert look == store.look_from_name('Pip'), 'the same name always gives the same look'
-    assert pip.animal == look['animal']
-    assert store.look_of(pip) == {'species': look['animal'], 'color': look['color'],
-                                  'personality': look['personality']}  # fmt: skip
-
-
 def test_a_look_picked_from_any_name_is_one_the_contract_offers() -> None:
     for name in ('Pip', 'Emma', 'Marcel', 'Zoë', '', '   ', 'x' * 40, '🦒', 'Lou-Ann'):
         look = store.look_from_name(name)

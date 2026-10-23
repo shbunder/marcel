@@ -7,13 +7,16 @@ each step, and the owner's agent gets the slug `marcel`."""
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from marcel_hub import db
-from marcel_hub.models import Agent, Message, Project, TaskEvent, User, UserRole
+from marcel_hub.app import Settings, create_app
+from marcel_hub.auth import tokens
+from marcel_hub.models import Agent, Device, Message, Project, TaskEvent, User
 
 NOW = "'2026-10-12 00:00:00.000000'"
 MENTION = {'kind': 'task', 'id': 'tsk_01J9ZQ5', 'title': 'Fix flaky login test'}  # app-api
@@ -69,7 +72,7 @@ def test_the_new_columns_work_after_the_upgrade(tmp_path: Path) -> None:
     engine = v1(tmp_path / 'marcel.db')
     db.upgrade(engine)
     with Session(engine) as s:
-        s.add(User(id='usr_owner', name='Shaun', role=UserRole.owner))
+        s.add(User(id='usr_owner', name='Shaun'))
         s.add(Message(id='msg_3', conversation_id='cnv_main', role='user', kind='text',
                       body_json={'text': '@Marcel yes'}, reply_to_message_id='msg_2',
                       mentions_json=[MENTION]))  # fmt: skip
@@ -82,7 +85,7 @@ def test_the_new_columns_work_after_the_upgrade(tmp_path: Path) -> None:
         assert reply is not None and reply.reply_to_message_id == 'msg_2'
         assert reply.mentions_json == [MENTION]
         owner = s.get(User, 'usr_owner')
-        assert owner is not None and owner.role is UserRole.owner
+        assert owner is not None and owner.name == 'Shaun'
 
 
 def test_a_reply_must_point_at_a_real_message(tmp_path: Path) -> None:
@@ -126,7 +129,7 @@ def test_downgrade_and_upgrade_again_keep_the_rows(tmp_path: Path) -> None:
     with Session(engine) as s:
         s.add(Message(id='msg_3', conversation_id='cnv_main', role='user', kind='text',
                       body_json={'text': 'Yes'}, reply_to_message_id='msg_2'))  # fmt: skip
-        s.add(User(id='usr_owner', name='Shaun', role=UserRole.owner))
+        s.add(User(id='usr_owner', name='Shaun'))
         s.commit()
     db.downgrade(engine, '0009')
     assert 'user' not in inspect(engine).get_table_names()
@@ -199,3 +202,102 @@ def test_0013_marks_no_existing_task_as_a_kickoff(tmp_path: Path) -> None:
     assert 'kickoff' not in columns(engine, 'task')
     with engine.connect() as conn:
         assert conn.execute(text('SELECT id FROM task')).scalars().all() == ['tsk_1']
+
+
+def family_at_0013(path: Path) -> tuple[Engine, dict[str, str]]:
+    """A 0.7 hub with people (S-17.1): the owner Shaun with Marcel and one phone, and Emma, a
+    family member, with Pip and two phones. Returns the engine and each phone's token by name."""
+    engine = v1(path)
+    db.upgrade(engine, '0013')
+    phones = {
+        'shaun': ('usr_owner', tokens.new_token()),
+        'emma-1': ('usr_emma', tokens.new_token()),
+        'emma-2': ('usr_emma', tokens.new_token()),
+    }
+    with engine.begin() as conn:
+        for sql in (
+            'INSERT INTO user (id, name, role, created_at) VALUES '
+            f"('usr_owner', 'Shaun', 'owner', {NOW}), ('usr_emma', 'Emma', 'member', {NOW})",
+            "UPDATE agent SET main_conversation_id = 'cnv_main', slug = 'marcel'",
+            'INSERT INTO agent (id, owner_user_id, name, animal, palette, seed, model_brain, '
+            "model_worker, slug) VALUES ('agt_pip', 'usr_emma', 'Pip', 'fox', 'marcel', 'Pip', "
+            "'opus', 'sonnet', 'pip')",
+            "INSERT INTO conversation (id, agent_id, kind, created_at) VALUES ('cnv_pip', "
+            f"'agt_pip', 'main', {NOW})",
+            "UPDATE agent SET main_conversation_id = 'cnv_pip' WHERE id = 'agt_pip'",
+            # Both people's event logs count from 1, and Emma has an unused pairing code.
+            'INSERT INTO app_event (user_id, id, type, data_json, at) VALUES '
+            f"('usr_owner', 1, 'message.created', '{{}}', {NOW}), "
+            f"('usr_emma', 1, 'message.created', '{{}}', {NOW})",
+            'INSERT INTO pairing_code (code_hash, user_id, created_at, expires_at) VALUES '
+            f"('h_emma', 'usr_emma', {NOW}, {NOW})",
+        ):
+            conn.execute(text(sql))
+        for name, (user, token) in phones.items():
+            conn.execute(
+                text(
+                    'INSERT INTO device (id, user_id, name, token_hash, created_at) VALUES '
+                    f'(:id, :user, :name, :hash, {NOW})'
+                ),
+                {
+                    'id': f'dev_{name}',
+                    'user': user,
+                    'name': name,
+                    'hash': tokens.hash_secret(token),
+                },
+            )
+    return engine, {name: token for name, (_, token) in phones.items()}
+
+
+def test_0014_folds_the_family_into_one_person_and_keeps_every_phone(tmp_path: Path) -> None:
+    """S-22.11 (ADR-013): one user, both agents with their slugs, three phones whose tokens still
+    work, each showing its old person's agent."""
+    engine, phones = family_at_0013(tmp_path / 'marcel.db')
+    db.upgrade(engine)
+    assert 'role' not in columns(engine, 'user')
+    with Session(engine) as s:
+        assert [(u.id, u.name) for u in s.exec(select(User))] == [('usr_owner', 'Shaun')]
+        agents = {a.id: (a.owner_user_id, a.slug) for a in s.exec(select(Agent))}
+        assert agents == {'agt_marcel': ('usr_owner', 'marcel'), 'agt_pip': ('usr_owner', 'pip')}
+        devices = {d.id: (d.user_id, d.agent_id) for d in s.exec(select(Device))}
+    assert devices == {
+        'dev_shaun': ('usr_owner', 'agt_marcel'),
+        'dev_emma-1': ('usr_owner', 'agt_pip'),
+        'dev_emma-2': ('usr_owner', 'agt_pip'),
+    }
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT user_id, id FROM app_event')).all() == [('usr_owner', 1)]
+        assert conn.execute(text('SELECT count(*) FROM pairing_code')).scalar_one() == 0
+    engine.dispose()
+
+    settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun')
+    with TestClient(create_app(settings)) as client:
+        for name, token in phones.items():
+            headers = {'Authorization': f'Bearer {token}'}
+            res = client.get('/api/devices', headers=headers)
+            assert res.status_code == 200, name
+            mine = next(d for d in res.json() if d['current'])
+            assert mine['agent_id'] == devices[f'dev_{name}'][1]
+            me = client.get('/api/me', headers=headers).json()
+            assert [a['id'] for a in me['agents']] == ['agt_marcel', 'agt_pip'], 'every buddy'
+
+
+def test_0014_gives_a_phone_whose_person_has_no_live_agent_the_owners(tmp_path: Path) -> None:
+    engine, _ = family_at_0013(tmp_path / 'marcel.db')
+    with engine.begin() as conn:
+        conn.execute(text(f"UPDATE agent SET archived_at = {NOW} WHERE id = 'agt_pip'"))
+    db.upgrade(engine)
+    with Session(engine) as s:
+        assert {d.agent_id for d in s.exec(select(Device))} == {'agt_marcel'}
+
+
+def test_0014_downgrade_gives_the_columns_back(tmp_path: Path) -> None:
+    engine, _ = family_at_0013(tmp_path / 'marcel.db')
+    db.upgrade(engine)
+    db.downgrade(engine, '0013')
+    assert 'agent_id' not in columns(engine, 'device')
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT id, role FROM user')).all() == [('usr_owner', 'owner')]
+        assert conn.execute(text('SELECT count(*) FROM device')).scalar_one() == 3
+    db.upgrade(engine)
+    assert 'agent_id' in columns(engine, 'device')

@@ -16,7 +16,7 @@ from marcel_hub.artifacts.store import (
     NoContent,
     VersionNotFound,
 )
-from marcel_hub.auth import current_device, require_device
+from marcel_hub.auth import require_device
 from marcel_hub.models import ArtifactKind
 from marcel_hub.tasks.routes import _body  # pyright: ignore[reportPrivateUsage]
 
@@ -35,10 +35,12 @@ def _store(request: Request) -> ArtifactStore:
     return request.app.state.artifacts
 
 
-def _not_yours(request: Request, artifact_id: str) -> JSONResponse | None:
-    """404 `artifact_not_found` unless the item belongs to one of the caller's agents (B-38):
-    another person's item answers exactly like one that does not exist."""
-    if _store(request).owner_of(artifact_id) != current_device(request).user_id:
+def _missing(request: Request, artifact_id: str) -> JSONResponse | None:
+    """404 `artifact_not_found` when there is no such item. Any paired phone reaches every
+    buddy's items (ADR-013)."""
+    try:
+        _store(request).get(artifact_id)
+    except ArtifactNotFound:
         return _not_found(artifact_id)
     return None
 
@@ -66,7 +68,6 @@ def list_artifacts(
         int(cursor or 0),
         int(limit),
         project_id,
-        user_id=current_device(request).user_id,  # only the caller's own items (B-38)
     )
     page: dict[str, Any] = {'items': [store.to_api(a) for a in rows]}
     if nxt is not None:
@@ -76,7 +77,7 @@ def list_artifacts(
 
 @router.get('/artifacts/{artifact_id}')
 def get_artifact(request: Request, artifact_id: str) -> Any:
-    if (refused := _not_yours(request, artifact_id)) is not None:
+    if (refused := _missing(request, artifact_id)) is not None:
         return refused
     try:
         return _store(request).to_api(_store(request).get(artifact_id))
@@ -86,7 +87,7 @@ def get_artifact(request: Request, artifact_id: str) -> Any:
 
 @router.get('/artifacts/{artifact_id}/versions')
 def list_versions(request: Request, artifact_id: str) -> Any:
-    if (refused := _not_yours(request, artifact_id)) is not None:
+    if (refused := _missing(request, artifact_id)) is not None:
         return refused
     store = _store(request)
     try:
@@ -99,7 +100,7 @@ def list_versions(request: Request, artifact_id: str) -> Any:
 def get_artifact_content(
     request: Request, artifact_id: str, version: Annotated[int | None, Query(ge=1)] = None
 ) -> Any:
-    if (refused := _not_yours(request, artifact_id)) is not None:
+    if (refused := _missing(request, artifact_id)) is not None:
         return refused
     try:
         path, art, content_type = _store(request).content_path(artifact_id, version)
@@ -131,9 +132,8 @@ async def move_artifact(request: Request, artifact_id: str) -> Any:
     if isinstance(body, JSONResponse):
         return body
     store = _store(request)
-    user_id = current_device(request).user_id
     try:
-        art, source = store.move(artifact_id, body.project_id, user_id)
+        art, source = store.move(artifact_id, body.project_id)
     except ArtifactNotFound:
         return _not_found(artifact_id)
     except MoveTargetNotFound:

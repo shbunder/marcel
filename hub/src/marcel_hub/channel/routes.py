@@ -1,8 +1,9 @@
-"""`/api/approvals`: the owner's approval cards, one card by id, and answering one (B-12).
+"""`/api/approvals`: the approval cards, one card by id, and answering one (B-12).
 
-Only the owner of the task's agent sees or answers a card; anyone else gets 404, as for a card
-that does not exist. A card that is no longer open answers 409 with the card as it stands.
-A self-change card (S-11.1) is answered by `selfmod.SelfChanges`, never sent to a session.
+Any paired phone sees and answers every card, a self-change card too (ADR-013: one person, many
+buddies). An id that is no card answers 404. A card that is no longer open answers 409 with the
+card as it stands. A self-change card (S-11.1) is answered by `selfmod.SelfChanges`, never sent
+to a session.
 """
 
 from typing import Any
@@ -10,13 +11,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlmodel import Session
 
-from marcel_hub.auth import ApiError, current_device, require_device
-from marcel_hub.channel.approvals import approval_json, is_self_change, owner_of_task
+from marcel_hub.auth import ApiError, require_device
+from marcel_hub.channel.approvals import approval_json, is_self_change
 from marcel_hub.channel.gateway import Gateway
-from marcel_hub.models import Approval, ApprovalState, UserRole
-from marcel_hub.users.store import owner_name, role_of
+from marcel_hub.models import Approval, ApprovalState
 
 router = APIRouter(prefix='/api', tags=['approvals'], dependencies=[Depends(require_device)])
 
@@ -35,34 +34,16 @@ def not_found() -> ApiError:
     return ApiError(404, 'approval_not_found', 'That approval is not on this hub.')
 
 
-def _is_owner(request: Request) -> bool:
-    with Session(_gateway(request).engine) as s:
-        return role_of(s, current_device(request).user_id) == UserRole.owner
-
-
 @router.get('/approvals')
 async def list_approvals(request: Request, state: ApprovalState | None = None) -> list[Any]:
-    """The caller's cards; the owner also sees every self-change card, a family helper's too."""
-    book = _gateway(request).approvals
-    rows = book.for_owner(current_device(request).user_id, state)
-    if _is_owner(request):
-        mine = {r.id for r in rows}
-        rows += [r for r in book.self_changes(state) if r.id not in mine]
-    return [approval_json(row) for row in rows]
+    """Every buddy's cards, open ones first."""
+    return [approval_json(row) for row in _gateway(request).approvals.cards(state)]
 
 
-def _own_approval(request: Request, approval_id: str) -> Approval:
-    """The card, if it is on a task of the caller's (or is a self-change card and the caller is
-    the owner); otherwise 404 `approval_not_found`."""
-    gateway = _gateway(request)
-    row = gateway.approvals.get(approval_id)
+def _card(request: Request, approval_id: str) -> Approval:
+    """The card, or 404 `approval_not_found`."""
+    row = _gateway(request).approvals.get(approval_id)
     if row is None:
-        raise not_found()
-    with Session(gateway.engine) as s:
-        owner = owner_of_task(s, row.task_id)
-    if owner != current_device(request).user_id and not (
-        is_self_change(row) and _is_owner(request)
-    ):
         raise not_found()
     return row
 
@@ -70,20 +51,14 @@ def _own_approval(request: Request, approval_id: str) -> Approval:
 @router.get('/approvals/{approval_id}')
 async def get_approval(approval_id: str, request: Request) -> Any:
     """One card in any state, for a `marcel://approval/<id>` deep link."""
-    return approval_json(_own_approval(request, approval_id))
+    return approval_json(_card(request, approval_id))
 
 
 @router.post('/approvals/{approval_id}')
 async def answer_approval(approval_id: str, body: ApprovalAnswer, request: Request) -> Any:
     gateway = _gateway(request)
-    card = _own_approval(request, approval_id)
+    card = _card(request, approval_id)
     approve = body.decision == 'approve'
-    if is_self_change(card) and not _is_owner(request):  # B-24, B-38: only the owner changes Marcel
-        with Session(gateway.engine) as s:
-            name = owner_name(s, request.app.state.settings.owner_name)
-        raise ApiError(
-            403, 'owner_only', f'Only {name} can approve a change to Marcel. Ask {name} to do it.'
-        )
     if is_self_change(card):
         answered = await request.app.state.selfmod.answer(approval_id, approve, body.note)
     else:

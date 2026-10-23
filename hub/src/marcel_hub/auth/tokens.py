@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from sqlalchemy import delete, or_, update
-from sqlmodel import Session, col
+from sqlmodel import Session, col, select
 
 from marcel_hub.auth.errors import ApiError
-from marcel_hub.models import Device, PairingCode, utcnow
+from marcel_hub.models import Agent, Device, PairingCode, utcnow
 
-# Marcel has one user, the owner. Every device and agent belongs to them for now.
+# An install belongs to one person, the owner (ADR-013). Every device and buddy is theirs.
 OWNER_USER_ID = 'usr_owner'
 
 TOKEN_PREFIX = 'mrc_'
@@ -104,8 +104,20 @@ def create_pairing_code(
     return code
 
 
+def first_buddy(session: Session) -> str | None:
+    """The first buddy `/me` lists (live, with its main conversation; the oldest id first),
+    which a phone shows when it has no buddy of its own; None when there is none yet."""
+    return session.exec(
+        select(Agent.id)
+        .where(col(Agent.archived_at).is_(None), col(Agent.main_conversation_id).is_not(None))
+        .order_by(col(Agent.id))
+        .limit(1)
+    ).first()
+
+
 def redeem_pairing_code(session: Session, code: str, device_name: str) -> tuple[Device, str]:
-    """Use up `code` and create a device. Returns the device and its token (shown once)."""
+    """Use up `code` and create a device that shows the first buddy. Returns the device and its
+    token (shown once)."""
     code_hash = hash_secret(code.strip().upper())
     row = session.get(PairingCode, code_hash)
     if row is None:
@@ -124,7 +136,12 @@ def redeem_pairing_code(session: Session, code: str, device_name: str) -> tuple[
             400, 'pairing_code_used', f'That pairing code was already used. {PAIR_AGAIN}'
         )
     token = new_token()
-    device = Device(user_id=row.user_id, name=device_name, token_hash=hash_secret(token))
+    device = Device(
+        user_id=row.user_id,
+        name=device_name,
+        token_hash=hash_secret(token),
+        agent_id=first_buddy(session),
+    )
     session.add(device)
     session.commit()
     session.refresh(device)

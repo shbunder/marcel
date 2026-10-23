@@ -1,7 +1,7 @@
-# Runner — a brain per person (`POST /brains`)
+# Runner — a brain per buddy (`POST /brains`)
 
-The hub runs in Docker and cannot render `brain/` or trust a folder, so before it starts a family
-member's brain it asks the runner, on the host (S-17.7, `contracts/runner-api.yaml` `prepareBrain`).
+The hub runs in Docker and cannot render `brain/` or trust a folder, so before it starts a second
+buddy's brain it asks the runner, on the host (S-17.7, `contracts/runner-api.yaml` `prepareBrain`).
 Code: `runner/src/marcel_runner/brains.py`.
 
 `POST /brains` `{agent_slug, name, persona: {person_name, personality?, animal?}}` makes `~/marcel/brains/<slug>`
@@ -34,7 +34,7 @@ Safe to repeat. `agent_slug` is lowercase letters, digits and dashes, so it neve
 | `claude_unavailable`, `claude_timeout` | 503 | `claude` is missing, or a step took too long. |
 
 `ANIMAL` is not passed yet: `PrepareBrain` has no animal (contract request
-`project/contract-requests/S-17.7.md`), so a family member's brain calls itself a pink giraffe while the app
+`project/contract-requests/S-17.7.md`), so a second buddy's brain calls itself a pink giraffe while the app
 draws its real look.
 
 The owner's first agent keeps `~/marcel/brain` (`MARCEL_BRAIN_CWD`), rendered by `make -C deploy install`

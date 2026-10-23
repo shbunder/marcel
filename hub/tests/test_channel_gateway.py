@@ -347,21 +347,24 @@ def test_answering_twice_is_409_with_the_first_answer(hub: ChannelHub) -> None:
     assert res.status_code == 409 and res.json()['state'] == 'denied'
 
 
-def test_only_the_owner_sees_or_answers_a_card(hub: ChannelHub) -> None:
+def test_any_paired_phone_sees_and_answers_a_card(hub: ChannelHub) -> None:
+    """One person, many phones (ADR-013): a second phone lists the card and answers it; an id
+    that is no card is 404 and changes nothing."""
     _, sid = hub.task()
     with hub.connect() as ch:
         ch.hello(sid)
         ch.send(**permission())
         ch.until_pong()
-    [card] = hub.approvals()
-    stranger = {'Authorization': f'Bearer {hub.phone("usr_stranger")}'}
-    assert hub.client.get('/api/approvals', headers=stranger).json() == []
-    res = hub.client.post(
-        f'/api/approvals/{card["id"]}', json={'decision': 'approve'}, headers=stranger
-    )
-    assert res.status_code == 404 and res.json()['code'] == 'approval_not_found'
-    assert hub.answer('apr_missing', 'approve').status_code == 404
-    assert hub.approvals()[0]['state'] == 'open'
+        [card] = hub.approvals()
+        assert hub.answer('apr_missing', 'approve').status_code == 404
+        assert hub.approvals()[0]['state'] == 'open'
+        other = {'Authorization': f'Bearer {hub.phone()}'}
+        listed = hub.client.get('/api/approvals', headers=other).json()
+        assert [c['id'] for c in listed] == [card['id']]
+        res = hub.client.post(
+            f'/api/approvals/{card["id"]}', json={'decision': 'approve'}, headers=other
+        )
+        assert res.status_code == 200 and res.json()['state'] == 'approved'
 
 
 def test_a_bad_answer_is_a_400(hub: ChannelHub) -> None:

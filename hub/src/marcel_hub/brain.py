@@ -61,7 +61,6 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth import ApiError, current_device, require_device
 from marcel_hub.auth.deps import DbSession
-from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.day_summary import message_line
 from marcel_hub.memory import MemoryRepo
@@ -487,9 +486,7 @@ class BrainKeeper:
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
             assert agent is not None
-            if agent.slug is None or (
-                agent.slug == OWNER_AGENT_SLUG and agent.owner_user_id == OWNER_USER_ID
-            ):
+            if agent.slug is None or agent.slug == OWNER_AGENT_SLUG:  # slugs are unique
                 return self.cwd
             person = s.get(User, agent.owner_user_id)
             slug, name = agent.slug, agent.name

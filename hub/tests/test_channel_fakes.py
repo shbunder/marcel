@@ -163,10 +163,12 @@ class ChannelHub:
         self.token = self.phone(OWNER)
         self.client.headers['Authorization'] = f'Bearer {self.token}'
 
-    def phone(self, user_id: str) -> str:
+    def phone(self, user_id: str = OWNER, agent_id: str | None = None) -> str:
+        """A paired phone's token; with `agent_id`, the phone shows that buddy."""
         token = tokens.new_token()
         with Session(self.engine) as s:
-            s.add(Device(user_id=user_id, name='iPhone', token_hash=tokens.hash_secret(token)))
+            s.add(Device(user_id=user_id, name='iPhone', token_hash=tokens.hash_secret(token),
+                         agent_id=agent_id))  # fmt: skip
             s.commit()
         return token
 

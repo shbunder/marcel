@@ -5,7 +5,7 @@
 - The first answer wins. Every state change is one conditional `UPDATE … WHERE state = 'open'`,
   so the app and a terminal answering at the same moment cannot both win.
 - An answer from the app sends `permission_decision` to the session. Nobody else can: a session
-  never answers its own prompt, and only the agent's owner sees or answers its cards.
+  never answers its own prompt. Any paired phone sees and answers every card (ADR-013).
 - A prompt answered in a terminal is read from the transcript (`tool_result.denied`), once the
   runner shows the session left the prompt. A task that stops or fails expires its open cards.
 - A self-change card (S-11.1, tool `self_change`, no `request_id`) is opened by `selfmod.py`, not
@@ -24,11 +24,9 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.models import (
-    Agent,
     AnsweredVia,
     Approval,
     ApprovalState,
-    Task,
     TaskEvent,
     TaskEventType,
     utcnow,
@@ -61,12 +59,6 @@ def approval_json(row: Approval) -> dict[str, Any]:
     return body
 
 
-def owner_of_task(s: Session, task_id: str) -> str | None:
-    task = s.get(Task, task_id)
-    agent = s.get(Agent, task.agent_id) if task else None
-    return agent.owner_user_id if agent else None
-
-
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=utcnow().tzinfo)
 
@@ -94,27 +86,10 @@ class ApprovalBook:
                 )
             )
 
-    def self_changes(self, state: ApprovalState | None = None) -> list[Approval]:
-        """Every self-change card (`is_self_change`), whoever's helper opened the PR: the owner
-        answers them all (B-24, B-38)."""
-        query = select(Approval).where(
-            Approval.tool == SELF_CHANGE_TOOL,
-            col(Approval.request_id).is_(None),
-            col(Approval.artifact_id).is_not(None),
-        )
-        if state is not None:
-            query = query.where(Approval.state == state)
-        with Session(self.engine) as s:
-            return list(s.exec(query))
-
-    def for_owner(self, user_id: str, state: ApprovalState | None = None) -> list[Approval]:
-        """The owner's cards, open ones first, then newest first."""
-        query = (
-            select(Approval)
-            .join(Task, col(Task.id) == col(Approval.task_id))
-            .join(Agent, col(Agent.id) == col(Task.agent_id))
-            .where(Agent.owner_user_id == user_id)
-        )
+    def cards(self, state: ApprovalState | None = None) -> list[Approval]:
+        """Every buddy's cards, self-change cards too (ADR-013: one person), open ones first,
+        then newest first."""
+        query = select(Approval)
         if state is not None:
             query = query.where(Approval.state == state)
         with Session(self.engine) as s:
@@ -252,13 +227,8 @@ class ApprovalBook:
         events = self._events()
         if events is None:
             return
-        with Session(self.engine) as s:
-            user_id = owner_of_task(s, row.task_id)
-            people = {user_id} if user_id is not None else set()
-            if is_self_change(row):  # a change to Marcel is the owner's card too (B-24, B-38)
-                people.add(OWNER_USER_ID)
-            for person in sorted(people):
-                events.publish(s, person, type_, approval_json(row))
+        with Session(self.engine) as s:  # one person: every card reaches every phone (ADR-013)
+            events.publish(s, OWNER_USER_ID, type_, approval_json(row))
 
 
 def is_self_change(row: Approval) -> bool:

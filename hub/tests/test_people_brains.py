@@ -1,5 +1,6 @@
-"""S-17.7: a brain per person. Each agent's brain runs in its own folder, which the runner makes
-ready first (`POST /brains`); the owner's first agent keeps the brain workspace from the settings.
+"""S-17.7: a brain per buddy. Each agent's brain runs in its own folder, which the runner makes
+ready first (`POST /brains`); the owner's first agent (`marcel`) keeps the brain workspace from the
+settings. Every buddy belongs to the one person (ADR-013), whose name reaches each persona.
 An archived agent has no brain, no schedules and no digests.
 
 Nothing here reaches a real `claude` or runner: `FakeBrains` and `FakeRunner` answer from memory."""
@@ -31,7 +32,7 @@ from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.brain import BrainKeeper, brain_name
 from marcel_hub.channel.outbox import ChannelOutbox
 from marcel_hub.digest import Digests, Facts
-from marcel_hub.models import Agent, Schedule, User, UserRole
+from marcel_hub.models import Agent, Schedule, User
 from marcel_hub.runner_client import RunnerClient
 from marcel_hub.schedule import Scheduler
 from marcel_hub.tasks.ports import RunnerUnavailable, StartFailed
@@ -59,15 +60,14 @@ class Brains(FakeBrains):
         return f'/home/owner/marcel/brains/{agent_slug}'
 
 
-def add(engine: Engine, *, slug: str | None, user: str, person: str, name: str,
-        personality: str | None = None, animal: str | None = None,
-        archived: bool = False) -> str:  # fmt: skip
+def add(engine: Engine, *, slug: str | None, name: str, personality: str | None = None,
+        animal: str | None = None, archived: bool = False) -> str:  # fmt: skip
+    """A buddy of the one person, Shaun."""
     with Session(engine) as s:
-        if s.get(User, user) is None:
-            role = UserRole.owner if user == OWNER_USER_ID else UserRole.member
-            s.add(User(id=user, name=person, role=role))
-        agent = Agent(owner_user_id=user, name=name, animal='fox', palette='tangerine', seed=name,
-                      slug=slug, look_personality=personality, look_animal=animal,
+        if s.get(User, OWNER_USER_ID) is None:
+            s.add(User(id=OWNER_USER_ID, name='Shaun'))
+        agent = Agent(owner_user_id=OWNER_USER_ID, name=name, animal='fox', palette='tangerine',
+                      seed=name, slug=slug, look_personality=personality, look_animal=animal,
                       archived_at=datetime.now(UTC) if archived else None)  # fmt: skip
         s.add(agent)
         s.commit()
@@ -90,17 +90,15 @@ def spawned_in(brains: Brains, agent_id: str) -> list[str]:
 # The keeper ---------------------------------------------------------------------------------
 
 
-def test_each_person_gets_a_brain_in_their_own_folder(engine: Engine, brains: Brains) -> None:
-    marcel = add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
-    pip = add(
-        engine, slug='pip', user='usr_emma', person='Emma', name='Pip', personality='cheerful'
-    )
+def test_each_buddy_gets_a_brain_in_its_own_folder(engine: Engine, brains: Brains) -> None:
+    marcel = add(engine, slug='marcel', name='Marcel')
+    pip = add(engine, slug='pip', name='Pip', personality='cheerful')
     run(keeper(engine, brains).check())
     assert spawned_in(brains, marcel) == [CWD], "the owner's brain keeps its workspace"
     assert spawned_in(brains, pip) == ['/home/owner/marcel/brains/pip']
     assert brains.prepared == [
-        {'slug': 'pip', 'name': 'Pip', 'person': 'Emma', 'personality': 'cheerful'}
-    ], 'only a family member needs a folder made; the person and the look reach the persona'
+        {'slug': 'pip', 'name': 'Pip', 'person': 'Shaun', 'personality': 'cheerful'}
+    ], 'only a second buddy needs a folder made; the person and the look reach the persona'
 
 
 def test_a_folder_that_cannot_be_made_backs_off_and_starts_nothing(
@@ -108,7 +106,7 @@ def test_a_folder_that_cannot_be_made_backs_off_and_starts_nothing(
 ) -> None:
     """The runner refuses (or is down): no brain is started in the wrong folder; the keeper's
     usual backoff and alert take over."""
-    pip = add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip')
+    pip = add(engine, slug='pip', name='Pip')
     for failure in (StartFailed('render_failed: a real file sits where MEMORY.md goes'),
                     RunnerUnavailable('The runner is not answering.')):  # fmt: skip
         brains.prepare_fails = failure
@@ -121,8 +119,8 @@ def test_a_folder_that_cannot_be_made_backs_off_and_starts_nothing(
 def test_an_archived_agent_gets_no_brain_and_its_running_one_is_stopped(
     engine: Engine, brains: Brains
 ) -> None:
-    """Delete the archived filter in `_agent_ids` and the keeper starts Emma's brain again."""
-    gone = add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip', archived=True)
+    """Delete the archived filter in `_agent_ids` and the keeper starts Pip's brain again."""
+    gone = add(engine, slug='pip', name='Pip', archived=True)
     left_running = brains.add(name=brain_name(gone))
     run(keeper(engine, brains).check())
     assert spawned_in(brains, gone) == []
@@ -156,8 +154,8 @@ def test_an_archived_agents_schedules_do_not_fire(
 
 
 def test_an_archived_agent_gets_no_digests(engine: Engine, tmp_path: Path) -> None:
-    live = add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
-    gone = add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip', archived=True)
+    live = add(engine, slug='marcel', name='Marcel')
+    gone = add(engine, slug='pip', name='Pip', archived=True)
     digests = Digests(engine, Facts(engine), state_path=tmp_path / 'digest.json',
                       clock=lambda: datetime(2026, 10, 12, 9, tzinfo=UTC))  # fmt: skip
     assert digests.ensure_builtins() == 4  # four built-ins, all for the live agent
@@ -179,15 +177,15 @@ def client(status: int, body: dict[str, Any], seen: list[dict[str, Any]]) -> Run
 
 def test_preparing_pips_brain_sends_its_animal(engine: Engine, brains: Brains) -> None:
     """S-17.8: Pip's look is a rabbit, so its brain is told it is a rabbit, not a giraffe."""
-    add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
-    add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip', personality='cheerful',
+    add(engine, slug='marcel', name='Marcel')
+    add(engine, slug='pip', name='Pip', personality='cheerful',
         animal='rabbit')  # fmt: skip
     run(keeper(engine, brains).check())
     assert brains.prepared == [
         {
             'slug': 'pip',
             'name': 'Pip',
-            'person': 'Emma',
+            'person': 'Shaun',
             'personality': 'cheerful',
             'animal': 'rabbit',
         }
@@ -230,20 +228,12 @@ def test_the_runner_client_maps_refusals(status: int, error: type[Exception]) ->
 
 
 def test_two_brains_never_share_a_folder(engine: Engine, brains: Brains) -> None:
-    add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
-    add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip')
-    add(engine, slug='rex', user='usr_tom', person='Tom', name='Rex')
+    add(engine, slug='marcel', name='Marcel')
+    add(engine, slug='pip', name='Pip')
+    add(engine, slug='rex', name='Rex')
     run(keeper(engine, brains).check())
     folders = [b['cwd'] for b in brains.spawned]
     assert len(folders) == len(set(folders)) == 3
-
-
-def test_only_the_owners_own_marcel_keeps_the_owners_folder(engine: Engine, brains: Brains) -> None:
-    """A member's agent called `marcel` gets its own folder: the owner's workspace and memory are
-    the owner's. Drop the owner check in `_cwd_for` and this goes red."""
-    other = add(engine, slug='marcel', user='usr_emma', person='Emma', name='Marcel')
-    run(keeper(engine, brains).check())
-    assert spawned_in(brains, other) == ['/home/owner/marcel/brains/marcel']
 
 
 def test_one_brain_failing_never_stops_or_clears_another(engine: Engine, brains: Brains) -> None:
@@ -253,8 +243,8 @@ def test_one_brain_failing_never_stops_or_clears_another(engine: Engine, brains:
 
     from marcel_hub import brain as brain_mod
 
-    marcel = add(engine, slug='marcel', user=OWNER_USER_ID, person='Shaun', name='Marcel')
-    pip = add(engine, slug='pip', user='usr_emma', person='Emma', name='Pip')
+    marcel = add(engine, slug='marcel', name='Marcel')
+    pip = add(engine, slug='pip', name='Pip')
     alerts = RecordingAlerts()
     clock = {'mono': 1000.0}
     k = BrainKeeper(engine, brains, cwd=CWD, alerts=alerts, monotonic=lambda: clock['mono'])

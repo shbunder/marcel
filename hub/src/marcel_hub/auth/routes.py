@@ -10,7 +10,7 @@ from sqlmodel import Session, col, select
 
 from marcel_hub.auth.deps import DbSession, current_device, require_device
 from marcel_hub.auth.errors import ApiError
-from marcel_hub.auth.tokens import PairGuessLimit, redeem_pairing_code
+from marcel_hub.auth.tokens import PairGuessLimit, first_buddy, redeem_pairing_code
 from marcel_hub.models import Agent, Device, User
 
 pair_router = APIRouter(prefix='/api', tags=['access'])
@@ -47,7 +47,17 @@ class PushTarget(BaseModel):
         return self
 
 
-def device_json(device: Device, current: Device) -> dict[str, Any]:
+def buddy_of(session: Session, device: Device) -> str | None:
+    """The buddy the phone shows (`Device.agent_id`, always a live one): its own while that one
+    is live, else the first buddy (`first_buddy`); None only while there is no buddy at all."""
+    if device.agent_id is not None:
+        agent = session.get(Agent, device.agent_id)
+        if agent is not None and agent.archived_at is None:
+            return agent.id
+    return first_buddy(session)
+
+
+def device_json(session: Session, device: Device, current: Device) -> dict[str, Any]:
     push = 'apns' if device.apns_token else 'ntfy' if device.ntfy_topic else 'none'
     body: dict[str, Any] = {
         'id': device.id,
@@ -56,6 +66,8 @@ def device_json(device: Device, current: Device) -> dict[str, Any]:
         'push': push,
         'current': device.id == current.id,
     }
+    if (agent_id := buddy_of(session, device)) is not None:
+        body['agent_id'] = agent_id
     if device.last_seen is not None:
         body['last_seen_at'] = device.last_seen.isoformat()
     return body
@@ -111,17 +123,14 @@ def me(request: Request, session: DbSession) -> dict[str, Any]:
     device = current_device(request)
     agents = session.exec(
         select(Agent)
-        .where(Agent.owner_user_id == device.user_id, col(Agent.main_conversation_id).is_not(None))
+        .where(col(Agent.archived_at).is_(None), col(Agent.main_conversation_id).is_not(None))
         .order_by(col(Agent.id))
     ).all()
-    from marcel_hub.users.store import role_of  # users/ builds on auth/
-
     person = session.get(User, device.user_id)
     fallback = request.app.state.settings.owner_name  # the owner's name before their row exists
     return {
         'user_id': device.user_id,
         'name': person.name if person is not None else fallback,
-        'role': role_of(session, device.user_id).value,
         'device_id': device.id,
         'agents': [agent_json(a, request.app.state.agent_states.current(a.id)) for a in agents],
         'push': request.app.state.pusher.capabilities(),  # notify/ (S-08.1)
@@ -136,7 +145,7 @@ def list_devices(request: Request, session: DbSession) -> list[dict]:
         .where(Device.user_id == me.user_id)
         .order_by(col(Device.created_at).desc(), col(Device.id).desc())
     ).all()
-    return [device_json(d, me) for d in devices]
+    return [device_json(session, d, me) for d in devices]
 
 
 @router.delete('/devices/{device_id}', status_code=204)
@@ -158,4 +167,4 @@ def set_device_push(
     session.add(device)
     session.commit()
     session.refresh(device)
-    return device_json(device, me)
+    return device_json(session, device, me)

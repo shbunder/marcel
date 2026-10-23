@@ -71,13 +71,11 @@ DERIVED = {
 # ones kept under another name are in DERIVED).
 # Contract 0.7.2 (S-02.10, asked for by S-19.3) added `Message.agent_id`, stored since (0012).
 # Contract 0.8.0 (S-02.13) added the fields below; each names the story that stores it.
-PENDING: dict[str, set[str]] = {
-    'Device': {'agent_id'},  # S-22.11 (the device.agent_id column and its migration)
-}
+PENDING: dict[str, set[str]] = {}
 # Fields app-api 0.8.0 (S-02.13, ADR-013) removed that the hub still sends, with the story that
 # stops sending them. `served_contract` lets the response checks accept them until then;
 # test_auth.py checks each one is still sent, so this list can only shrink.
-RETIRED_FIELDS: dict[str, dict[str, str]] = {'Me': {'role': 'S-22.11'}}
+RETIRED_FIELDS: dict[str, dict[str, str]] = {}
 
 
 def served_contract(api: dict[str, Any]) -> dict[str, Any]:
