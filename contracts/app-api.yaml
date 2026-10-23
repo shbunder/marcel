@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — app API
-  version: 0.8.1
+  version: 0.8.2
   description: |
     The API the iPhone app uses to talk to the hub on the person's own computer (the NUC for the
     owner's install, ADR-013). **Every path, including `/health`,
@@ -34,6 +34,12 @@ info:
     **0.8.1** (additive): the memory routes (`GET /memory`, `GET` and `PUT /memory/files/{path}`)
     take an optional `agent_id` query parameter, so the Notebook follows the buddy a phone shows.
     Without it they use the calling phone's buddy (`Device.agent_id`).
+
+    **0.8.2** (additive): buddies message each other (B-50). Claude Code carries the message from
+    one buddy's brain to the other's; the hub records it as a `MessageKind` `buddy` message, one copy
+    in each buddy's main conversation, with `Message.from_agent_id` and `Message.to_agent_id`. A
+    client built before 0.8.2 does not know the kind, so the app learns it (S-22.28) before a hub
+    sends it (S-22.13).
 servers:
   - url: https://marcel-bot.com/api
     description: Production, through the Cloudflare tunnel
@@ -2017,8 +2023,10 @@ components:
         `text`: a normal chat bubble. `milestone`: a task started, needs you, finished or failed
         (B-06). `approval`: an approval card (B-12). `quote`: a side-thread result brought into the
         main conversation. `artifact`: an item arrived — the first version of an artifact a task made
-        (B-36); later versions only update the cards already shown.
-      enum: [text, milestone, approval, quote, artifact]
+        (B-36); later versions only update the cards already shown. `buddy`: one buddy messaged
+        another (B-50, new in 0.8.2), shown as one quiet line ("Marcel → Pip: …") in both buddies'
+        main conversations; see `Message.from_agent_id`.
+      enum: [text, milestone, approval, quote, artifact, buddy]
       example: milestone
 
     Milestone:
@@ -2057,7 +2065,7 @@ components:
         kind: { $ref: '#/components/schemas/MessageKind' }
         text:
           type: string
-          description: Markdown. Present for `text` and `quote`; optional otherwise.
+          description: Markdown. Present for `text`, `quote` and `buddy`; optional otherwise.
         milestone: { $ref: '#/components/schemas/Milestone' }
         approval_id:
           type: string
@@ -2077,6 +2085,16 @@ components:
             belongs to no quest to the right helper when there are several. Absent on `user` and
             `system` messages. A client that gets an `agent` message without it credits the
             conversation's agent. New in 0.7.2.
+        from_agent_id:
+          type: string
+          description: |
+            Present for `buddy`: the buddy whose brain sent the message. The hub stores one copy in
+            each buddy's main conversation: in the sender's it is role `agent` (with `agent_id`, the
+            same buddy), in the receiver's role `system`. Both copies have the same `text`,
+            `from_agent_id`, `to_agent_id` and `created_at`. New in 0.8.2.
+        to_agent_id:
+          type: string
+          description: 'Present for `buddy`: the buddy whose brain received it. New in 0.8.2.'
         task_id: { type: string }
         project_id:
           type: string
@@ -2114,6 +2132,27 @@ components:
           then: { required: [text, quoted_message_id] }
         - if: { properties: { kind: { const: artifact } } }
           then: { required: [artifact_id, project_id] }
+        - if: { properties: { kind: { const: buddy } } }
+          then: { required: [text, from_agent_id, to_agent_id] }
+      examples:
+        # A buddy message (0.8.2): the copy in the sender's chat, then the one in the receiver's.
+        - id: msg_01JB2B1
+          conversation_id: cnv_main_marcel
+          role: agent
+          kind: buddy
+          agent_id: agt_marcel
+          from_agent_id: agt_marcel
+          to_agent_id: agt_pip
+          text: What's for dinner tonight?
+          created_at: '2026-10-24T17:30:02Z'
+        - id: msg_01JB2B2
+          conversation_id: cnv_main_pip
+          role: system
+          kind: buddy
+          from_agent_id: agt_marcel
+          to_agent_id: agt_pip
+          text: What's for dinner tonight?
+          created_at: '2026-10-24T17:30:02Z'
       example:
         id: msg_01J9ZQZ8
         conversation_id: cnv_main_marcel

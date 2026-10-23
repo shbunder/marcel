@@ -22,7 +22,9 @@ PENDING_OPERATIONS: dict[tuple[str, str], str] = {}
 RETIRED_OPERATIONS: dict[tuple[str, str], str] = {}
 # The same for brain-api.yaml (under `/brain`) and session-api.yaml (under `/api`, except a path
 # with its own `servers`, served at the hub's root). Each list can only shrink.
-PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}
+PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {
+    ('POST', '/brain/buddy-messages'): 'S-22.13',  # brain-api 0.2.0 (S-02.16)
+}
 PENDING_SESSION_OPERATIONS: dict[tuple[str, str], str] = {}
 # Query parameters app-api.yaml names on a route the hub serves but does not read yet, with the
 # work that reads them. The test below fails as soon as one is read, so this list can only shrink.

@@ -2,7 +2,7 @@
 
 | File | Between | Story |
 |---|---|---|
-| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1; projects and artifact versions S-02.5; people, looks, quoted replies and mentions S-02.7 (0.7.0); one person, buddies on phones, relay push S-02.13 (0.8.0); memory per buddy (`agent_id` on the memory routes) 0.8.1 |
+| [app-api.yaml](app-api.yaml) | app ↔ hub (REST, OpenAPI 3.1) | S-02.1; projects and artifact versions S-02.5; people, looks, quoted replies and mentions S-02.7 (0.7.0); one person, buddies on phones, relay push S-02.13 (0.8.0); memory per buddy (`agent_id` on the memory routes) 0.8.1; buddy messages (`MessageKind` `buddy`) S-02.16 (0.8.2) |
 | [events.schema.json](events.schema.json) | hub → app (WebSocket `/ws`, JSON Schema 2020-12) | S-02.1, S-02.5; `device.updated` S-02.13 |
 | [push-relay.yaml](push-relay.yaml) | app and hub → the owner's push relay (`relay/`, a Cloudflare Worker) | S-02.13 |
 | [task-states.md](task-states.md) | the task state machine every lane follows | S-02.1 |
@@ -12,7 +12,7 @@
 | [transcript.schema.json](transcript.schema.json) | runner → hub (one normalised event per transcript line) | S-02.2; workflow events S-02.11 |
 | [channel-protocol.md](channel-protocol.md) + [channel.schema.json](channel.schema.json) | session's channel server ↔ hub (WebSocket, outside `/api`) | S-02.2 |
 | [session-api.yaml](session-api.yaml) | sessions → hub over the tunnel (`/api/session/adopt`, `/api/session/report`); the plugin's session-end hooks on the NUC (`/channel/session-end`, outside `/api`) | S-02.2; session-end S-02.9 |
-| [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) and the plugin's hooks → hub (`/brain/*`, NUC only) | S-05.3; `/brain/summary` S-02.9; `NewTask.kickoff` S-02.13 (0.1.5) |
+| [brain-api.yaml](brain-api.yaml) | the brain's tools server (`plugins/marcel/tools`) and the plugin's hooks → hub (`/brain/*`, NUC only) | S-05.3; `/brain/summary` S-02.9; `NewTask.kickoff` S-02.13 (0.1.5); `POST /buddy-messages` S-02.16 (0.2.0) |
 
 Only the lead changes these files (the guard hook enforces it). Implementers who find a contract
 wrong or missing something write `project/contract-requests/<story>.md` instead.
@@ -40,6 +40,22 @@ and that the state table matches the API's `TaskState` enum.
 optional `agent_id` query parameter (`MemoryAgentId`); omitted, it is the calling phone's buddy. An id that is no
 buddy is 404 `agent_not_found`; an archived buddy's memory stays readable and refuses a save. Query parameters the
 hub does not read yet are listed in `hub/tests/test_contract_routes.py` `PENDING_QUERY_PARAMETERS`.
+
+**app-api 0.8.2 and brain-api 0.2.0 (S-02.16, additive): buddies message each other (B-50).** Claude Code
+carries the message between two buddies' brains (`SendMessage`, SP13); Marcel only shows it.
+- **Who reports:** the RECEIVING brain. Its marcel plugin `UserPromptSubmit` hook reads Claude Code's
+  `<cross-session-message from-name=…>` and calls brain-api `POST /buddy-messages` `{from_name, text, msg_id}`.
+  The receiver is the caller (`X-Marcel-Session`), so the body has no receiver field. The sender's own hook
+  is no use here: a reply's target is a socket path. Chosen over a runner transcript event, so the hub
+  needs no reader on every brain's transcript.
+- **Once per message:** the first `msg_id` answers 201, a repeat 200 with the same ids; an unknown or archived
+  `from_name` is 404 `agent_not_found`, the caller's own buddy 400 `bad_request`. Nothing is stored then.
+- **What the app gets:** a `buddy` message in each buddy's main conversation (`Message.from_agent_id`,
+  `to_agent_id`; role `agent` in the sender's, `system` in the receiver's), as `message.created`. The
+  examples are `Message.examples` in app-api.yaml. The hub serves none of it yet: the route is in
+  `PENDING_BRAIN_OPERATIONS`, the kind in `PENDING_ENUM_VALUES` and the fields in `PENDING` (S-22.13).
+- **Rollout:** an app built before 0.8.2 refuses the new kind, so the app learns it (S-22.28) before the
+  owner's hub sends it (S-22.13).
 
 While the hub and the mock catch up, operations the hub still serves but 0.8.0 removed are listed in
 `hub/tests/test_contract_routes.py` `RETIRED_OPERATIONS` (S-22.11 removes them).

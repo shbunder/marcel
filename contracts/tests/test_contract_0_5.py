@@ -152,6 +152,7 @@ BRAIN_ROUTES = {
     ('post', '/notify'),
     ('get', '/usage'),
     ('get', '/summary'),  # S-02.9: read by the plugin's SessionStart hook, not a tool
+    ('post', '/buddy-messages'),  # S-02.16: the receiving brain's UserPromptSubmit hook, not a tool
 }
 METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Marcel hub — brain API
-  version: 0.1.5
+  version: 0.2.0
   description: |
     The routes Marcel's brain tools call (`plugins/marcel/tools`, the `tools` MCP server of the
     marcel plugin). Each tool call is one HTTP call to the hub on the NUC; the hub side is
@@ -50,7 +50,14 @@ info:
     `task_not_found`, `memory_file_not_found`, `schedule_not_found`, `digest_not_found` (404), `project_archived`,
     `slug_taken`, `task_finished`, `memory_conflict`, `schedule_builtin` (409),
     `invalid_memory_path`, `memory_file_too_big`, `bad_request` (400), `runner_unreachable`,
-    `memory_unavailable` (503). An unexpected crash is 500 `internal_error`.
+    `memory_unavailable` (503). An unexpected crash is 500 `internal_error`. 0.2.0 adds
+    `agent_not_found` (404) for `POST /buddy-messages`.
+
+    **0.2.0: buddies message each other** (B-50, SP13). The first route the plugin's hooks call on
+    the *receiving* side: `POST /buddy-messages` records a message one buddy's brain sent another with
+    Claude Code's own `SendMessage`. Claude Code delivers it; the hub only shows it. Of the two ways
+    SP13 left open, this route is the one Marcel uses, not a runner transcript event: the hub then
+    needs no reader on every brain's transcript (that reader is off by default, S-06.8).
 servers:
   - url: http://127.0.0.1:7420/brain
     description: On the NUC (`MARCEL_HUB_URL` overrides the host for development)
@@ -65,6 +72,7 @@ tags:
   - name: memory
   - name: schedules
   - name: notify
+  - name: buddies
 
 paths:
   /tasks:
@@ -530,6 +538,64 @@ paths:
         '413': { $ref: '#/components/responses/TooLarge' }
         '503': { $ref: '#/components/responses/NoSecret' }
 
+  /buddy-messages:
+    post:
+      tags: [buddies]
+      operationId: brainRecordBuddyMessage
+      summary: Record a message another buddy sent this one, so both chats show it. New in 0.2.0.
+      description: |
+        Called by the marcel plugin's `UserPromptSubmit` hook in the brain that RECEIVED the
+        message (SP13: the sender's `PostToolUse` names a reply's target only by a socket path,
+        while the receiver sees the sender's name every time, replies included). The receiver is
+        the caller: the buddy whose conversation `X-Marcel-Session` belongs to. The sender is
+        `from_name`, the `from-name` of Claude Code's `<cross-session-message>`, which is a buddy's
+        slug (each brain runs with `--name <slug>`, S-17.7).
+
+        The hub stores one `buddy` message (app-api 0.8.2 `MessageKind`) in each buddy's main
+        conversation, role `agent` in the sender's and `system` in the receiver's, and sends each
+        as a `message.created` event. Nothing is pushed, and neither brain is woken: Claude Code
+        has already handed the message to the receiver.
+
+        **Once per message.** `msg_id` is Claude Code's id for the delivery (`origin.msg_id` on the
+        receiver's transcript line, SP13). The first call with a `msg_id` answers 201; a repeat
+        answers 200 with the same message ids and stores nothing.
+
+        A rollover's new brain before its hello gets 401 `unknown_session`, like any write; the
+        message still reached it, only the chats do not show it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BuddyMessage' }
+      responses:
+        '201':
+          description: Recorded in both buddies' main conversations.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuddyMessageRecorded' }
+        '200':
+          description: This `msg_id` was recorded before; nothing was stored again.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuddyMessageRecorded' }
+        '400':
+          description: |
+            The body is not valid, or `from_name` is the caller's own buddy (`bad_request`).
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/NotBrain' }
+        '404':
+          description: |
+            `from_name` is no live buddy's slug: no buddy has it, or that buddy is archived
+            (`agent_not_found`). Nothing is stored.
+          content:
+            application/json:
+              schema: { $ref: 'app-api.yaml#/components/schemas/Error' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '503': { $ref: '#/components/responses/NoSecret' }
+
   /summary:
     get:
       tags: [memory]
@@ -907,6 +973,55 @@ components:
           enum: [normal, urgent]
           default: normal
       example: { text: 'The Luminus quote came in: 12 % cheaper than Engie.', level: normal }
+
+    BuddyMessage:
+      type: object
+      required: [from_name, text, msg_id]
+      additionalProperties: false
+      description: |
+        What the receiving brain's hook read from Claude Code's cross-session message. There is no
+        receiver field: the receiver is the caller (`X-Marcel-Session`).
+      properties:
+        from_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: The sender's session name, `from-name` in the message; a buddy's slug.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 20000
+          description: The message body, without Claude Code's wrapper and safety note.
+        msg_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Claude Code's id for this delivery. The hub records each `msg_id` once.
+      example:
+        from_name: marcel
+        text: What's for dinner tonight?
+        msg_id: 5e598c43-d59d-4635-88fb-4c59c1c484a4
+
+    BuddyMessageRecorded:
+      type: object
+      required: [msg_id, from_agent_id, to_agent_id, sender_message_id, receiver_message_id]
+      additionalProperties: false
+      properties:
+        msg_id: { type: string }
+        from_agent_id: { type: string, description: The buddy that sent it. }
+        to_agent_id: { type: string, description: 'The buddy that received it: the caller''s.' }
+        sender_message_id:
+          type: string
+          description: The `buddy` message in the sender's main conversation (role `agent`).
+        receiver_message_id:
+          type: string
+          description: The `buddy` message in the receiver's main conversation (role `system`).
+      example:
+        msg_id: 5e598c43-d59d-4635-88fb-4c59c1c484a4
+        from_agent_id: agt_marcel
+        to_agent_id: agt_pip
+        sender_message_id: msg_01JB2B1
+        receiver_message_id: msg_01JB2B2
 
     DaySummary:
       type: object
