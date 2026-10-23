@@ -302,7 +302,7 @@ def test_me_matches_the_contract(client: TestClient) -> None:
     assert body['user_id'] == tokens.OWNER_USER_ID
     assert [a['name'] for a in body['agents']] == ['Marcel'], 'live buddies with a main chat'
     assert 'role' not in body, 'app-api 0.8.0 has no roles'
-    assert body['push'] == {'apns': False, 'ntfy': False}
+    assert body['push'] == {'apns': False, 'ntfy': False, 'relay': True}  # the relay: always on
 
 
 def test_retired_fields_are_still_sent(client: TestClient) -> None:
@@ -363,6 +363,75 @@ def test_registering_push_is_saved(client: TestClient, buddy: str, target: dict,
     validate('Device', res.json())
     assert res.json()['push'] == push
     assert res.json()['agent_id'] == buddy
+
+
+RELAY_TARGET = {
+    'kind': 'relay',
+    'relay_url': 'https://marcel-relay.example.workers.dev',
+    'handle': 'hY3kQ9vT2mW8pL5xR1nB7c',
+    'send_secret': 'Zk1QbXJ4V2c5dEw3cU5hYjJ5Rk1uVDhvSzZlUjRzVmQ',
+    'device_key': 'njCdIc2oG-JgfnBbP2hZZXoNELO71-teMzDch9iRfBs',
+}
+
+
+def test_a_relay_target_is_stored_and_its_secret_never_shown(
+    client: TestClient, buddy: str
+) -> None:
+    me = pair(client)
+    res = client.put(
+        f'/api/devices/{me["device_id"]}/push', json=RELAY_TARGET, headers=bearer(me['token'])
+    )
+    assert res.status_code == 200, res.text
+    validate('Device', res.json())
+    assert res.json()['push'] == 'relay'
+    listed = client.get('/api/devices', headers=bearer(me['token']))
+    for text in (res.text, listed.text):
+        assert RELAY_TARGET['send_secret'] not in text
+        assert RELAY_TARGET['handle'] not in text
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, me['device_id'])
+        assert device is not None
+        assert (device.relay_url, device.relay_handle, device.relay_secret,
+                device.relay_device_key) == (RELAY_TARGET['relay_url'], RELAY_TARGET['handle'],
+                                             RELAY_TARGET['send_secret'],
+                                             RELAY_TARGET['device_key'])  # fmt: skip
+    # Another kind replaces it: one target per phone.
+    res = client.put(
+        f'/api/devices/{me["device_id"]}/push',
+        json={'kind': 'ntfy', 'ntfy_topic': 'marcel-shaun'},
+        headers=bearer(me['token']),
+    )
+    assert res.json()['push'] == 'ntfy'
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, me['device_id'])
+        assert device is not None
+        assert (device.relay_url, device.relay_handle, device.relay_secret,
+                device.relay_device_key) == (None, None, None, None)  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    'change',
+    [{'relay_url': None}, {'handle': None}, {'send_secret': None}, {'device_key': None},
+     {'relay_url': 'http://relay.example'}, {'relay_url': 'https://user@relay.example'},
+     {'relay_url': 'https://relay.example/?x=1'}, {'handle': 'short'}, {'send_secret': 'x' * 44},
+     {'device_key': 'njCdIc2oG-JgfnBbP2hZZXoNELO71-teMzDch9iRfBt'}, {'device_key': 'A' * 43}],
+    ids=['no-url', 'no-handle', 'no-secret', 'no-key', 'http', 'userinfo', 'query',
+         'bad-handle', 'bad-secret', 'bad-key', 'zero-key'],
+)  # fmt: skip
+def test_a_bad_relay_target_is_400_and_stores_nothing(
+    client: TestClient, change: dict[str, Any]
+) -> None:
+    me = pair(client)
+    target = {k: v for k, v in {**RELAY_TARGET, **change}.items() if v is not None}
+    res = client.put(
+        f'/api/devices/{me["device_id"]}/push', json=target, headers=bearer(me['token'])
+    )
+    assert res.status_code == 400, res.text
+    validate('Error', res.json())
+    assert RELAY_TARGET['send_secret'] not in res.text
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, me['device_id'])
+        assert device is not None and device.relay_handle is None
 
 
 @pytest.mark.parametrize(

@@ -49,8 +49,8 @@ names the file.
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | `$MARCEL_HOME/brain`. The brain workspace (`brain/README.md`); the hub keeps one brain running there (see "The brain: keep-alive and rollover") |
 | `brain_rollover_on_context` | `MARCEL_BRAIN_ROLLOVER_ON_CONTEXT` | `false`. Claude Code's own auto-compact keeps the brain's context (S-06.8, ADR-010). `true` turns the S-06.7 rollover by context size back on; anything other than true or false stops the hub at start |
 | `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Only with `brain_rollover_on_context`: once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
-| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
-| `apns_key` | `MARCEL_APNS_KEY` | unset: no APNs pushes (`push.apns` false; phones use ntfy). The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
+| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no ntfy pushes (phones use the push relay). The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
+| `apns_key` | `MARCEL_APNS_KEY` | unset: no direct APNs pushes (`push.apns` false; phones use the push relay). Only for the owner's own builds of the app. The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
 | `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
 | `apns_team_id` | `MARCEL_APNS_TEAM_ID` | unset. The Apple developer team id (Membership details). `deploy/.env.local`; never logged |
 | `apns_topic` | `MARCEL_APNS_TOPIC` | unset. The iOS app's bundle id, e.g. `com.<you>.marcel`. Set all four `apns_*` or none: half of them stops the hub at start, naming what is missing |
@@ -229,10 +229,14 @@ for **10 minutes**. The app sends it to `POST /api/pair` and gets a device token
 - Every route except `GET /api/health`, `POST /api/pair` and the session API (below) needs
   `Authorization: Bearer <token>`. Without it, or with a revoked token, the answer is 401. `/docs` and `/openapi.json` are off.
 - `GET /api/devices` lists your devices; `DELETE /api/devices/{id}` revokes one, and its token
-  stops working at once. `PUT /api/devices/{id}/push` stores an APNs token or ntfy topic. An APNs
-  token must be the hex device token iOS gives (64 to 200 characters, 0-9 and a-f), else 400.
-- `GET /api/me` reports `push.ntfy` (and `push.ntfy_server`) when `ntfy_server` is set, `push.apns`
-  when the four `apns_*` settings are set, and each agent's live `state` (see "The avatar's state" below).
+  stops working at once. `PUT /api/devices/{id}/push` stores a push relay target, an APNs token or
+  an ntfy topic (one per phone; a new one replaces the old). An APNs token must be the hex device
+  token iOS gives (64 to 200 characters, 0-9 and a-f), else 400. A relay target needs all four of
+  `relay_url` (https, no user, query or fragment), `handle`, `send_secret` and `device_key`, each
+  in the contract's shape, else 400; the send secret is never shown again.
+- `GET /api/me` reports `push.relay: true` (always), `push.ntfy` (and `push.ntfy_server`) when
+  `ntfy_server` is set, `push.apns` when the four `apns_*` settings are set, and each agent's live
+  `state` (see "The avatar's state" below).
 - After 10 unknown codes in a minute, `POST /api/pair` refuses every code (429,
   `too_many_tries`) until the minute is over. Expired or already-used codes do not count.
 - Every error has the contract's `Error` shape: a stable `code` and a `message` for people. A bad
@@ -926,11 +930,16 @@ while the owner has no agent, and never overwrites a file: a non-empty clash is 
 
 ## Push notifications
 
-`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Set the four `apns_*`
-settings to send through Apple (`GET /api/me` then says `push.apns: true` and the app registers
-its APNs token), and `ntfy_server` to send through ntfy (the app registers an ntfy topic). Both can
-be set; each device gets its pushes through the one it registered with
-`PUT /api/devices/{id}/push`.
+`src/marcel_hub/notify/` sends pushes to paired phones (B-16, B-18). Each device gets its pushes
+through the one target it registered with `PUT /api/devices/{id}/push`:
+
+- **The push relay** (`notify/relay.py`, S-22.15), always on, with no hub setting: the App Store
+  and TestFlight app registers with the owner's relay (`contracts/push-relay.yaml`, `relay/`) and
+  gives the hub its relay address, handle, send secret and public key. This is the normal way.
+- **APNs directly**, when the four `apns_*` settings are set (`push.apns: true`). Only for the
+  owner's own builds of the app, signed with their own Apple key; every other install leaves
+  `MARCEL_APNS_*` unset and uses the relay.
+- **ntfy**, when `ntfy_server` is set (the app registers an ntfy topic).
 
 | Event | Push | Opens |
 |---|---|---|
@@ -946,6 +955,10 @@ be set; each device gets its pushes through the one it registered with
 | A digest (`pusher.digest(...)`) | digest, normal | the digest's message |
 
 Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`.
+
+- **Which phones.** A buddy's push goes to the phones showing that buddy; a push about no buddy goes
+  to every phone. An approval for a buddy that no phone shows right now goes to every phone, so an
+  approval never waits silently; a tap on it still opens that buddy.
 
 - **How events arrive.** The task registry's publisher is `pusher.task_publisher()`: each `state`
   task event is one push at most. The runner watcher uses the pusher as its alerts. The channel
@@ -964,7 +977,23 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
   retried. When an urgent push did not arrive, one "a notification did not arrive" push goes to
   every device.
 - **Secrets.** An ntfy topic lets anyone read the pushes. Logs name the device id, never the topic.
-- **APNs** (`notify/apns.py`). A POST over HTTP/2 to `/3/device/<token>` on
+- **The push relay** (`notify/relay.py`). Each push is sealed for the phone before it leaves the
+  hub: `title`, `body`, the deep link, the buddy (`agent_id`) and the category, as JSON, encrypted
+  for the phone's X25519 key (app-api.yaml `SealedPush`: a fresh key pair per push, HKDF-SHA256
+  `marcel-push-v1`, ChaCha20-Poly1305). The hub POSTs `{handle, sealed, urgent}` to
+  `<relay_url>/v1/push` with the send secret as the bearer token.
+  - **What the relay sees:** the phone's random handle, the sealed bytes and whether the push is
+    urgent (approvals and broken things). Never the text, the link, the buddy, the task or approval
+    ids. It has no key that opens the box; only the phone has. It does see the address each
+    push comes from (the home server's) and roughly how long each sealed push is.
+  - **The phone is gone** (410 `handle_gone`: Apple no longer knows its token). The hub clears its
+    relay target, unless the phone registered a new one meanwhile. `GET /api/devices` then says
+    `push: none`, and the app registers again when it next opens.
+  - **Down or busy.** No answer, a timeout and 5xx are tried again like any push (after 2 s and
+    10 s). 400, 401, 413 and 429 (over 500 pushes to that phone today) are not retried; the log
+    gives the relay's error code. If the relay is down, pushes stop and the app still works.
+  - **Secrets.** Logs name the device id, never the handle, the send secret or the key.
+- **APNs** (`notify/apns.py`), for the owner's own builds only. A POST over HTTP/2 to `/3/device/<token>` on
   `api.push.apple.com` (or `api.sandbox.push.apple.com` with `apns_sandbox`). `title` and `body` go
   in `aps.alert`, the category is `aps.category` (the app gives `approval` its `approve` and `deny`
   actions), `collapse_key` is the `apns-collapse-id` header (hashed when over 64 bytes), and

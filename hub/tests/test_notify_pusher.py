@@ -104,7 +104,7 @@ class Flaky(RecordingNotifier):
         super().__init__()
         self.dead = dead
 
-    async def send(self, device, notification) -> None:  # type: ignore[override]
+    async def send(self, device, notification, agent_id=None) -> None:  # type: ignore[override]
         self.tries += 1
         if device.id == self.dead:
             raise PushFailed('down', retry=False)
@@ -486,6 +486,11 @@ def test_closing_cancels_pending_pushes_and_closes_the_backends(engine: Engine, 
 
 
 def test_capabilities_report_the_backends(engine: Engine) -> None:
-    assert Pusher(engine).capabilities() == {'apns': False, 'ntfy': False}
+    assert Pusher(engine).capabilities() == {'apns': False, 'ntfy': False, 'relay': False}
     on = Pusher(engine, [FakeNtfy().notifier()], ntfy_server='https://ntfy.test')
-    assert on.capabilities() == {'apns': False, 'ntfy': True, 'ntfy_server': 'https://ntfy.test'}
+    assert on.capabilities() == {
+        'apns': False,
+        'ntfy': True,
+        'ntfy_server': 'https://ntfy.test',
+        'relay': False,
+    }

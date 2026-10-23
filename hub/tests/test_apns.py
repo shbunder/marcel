@@ -433,7 +433,7 @@ def test_no_key_means_no_apns_and_ntfy_keeps_working(
 
         client.portal.call(go)  # type: ignore[union-attr]
     validate('Me', body)
-    assert body['push'] == {'apns': False, 'ntfy': True, 'ntfy_server': NTFY}
+    assert body['push'] == {'apns': False, 'ntfy': True, 'ntfy_server': NTFY, 'relay': True}
     assert built == [] and 'apns' not in pusher.notifiers  # nothing can reach APNs
     assert [b['topic'] for b in ntfy.bodies] == [TOPIC]  # the ntfy phone still gets it
 
@@ -446,7 +446,7 @@ def test_a_configured_key_turns_apns_on(tmp_path: Path) -> None:
         body = client.get('/api/me', headers=bearer(me['token'])).json()
         assert isinstance(app.state.pusher.notifiers['apns'], ApnsNotifier)
     validate('Me', body)
-    assert body['push'] == {'apns': True, 'ntfy': False}
+    assert body['push'] == {'apns': True, 'ntfy': False, 'relay': True}
 
 
 # Settings ----------------------------------------------------------------------------------

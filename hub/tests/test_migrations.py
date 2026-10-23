@@ -325,3 +325,31 @@ def test_0015_gives_a_pairing_code_its_buddy_and_its_downgrade_keeps_the_codes(
     assert 'agent_id' not in columns(engine, 'pairing_code')
     with engine.connect() as conn:
         assert conn.execute(text('SELECT code_hash FROM pairing_code')).scalars().all() == ['h_old']
+
+
+RELAY_COLUMNS = {'relay_url', 'relay_handle', 'relay_secret', 'relay_device_key'}
+
+
+def test_0016_gives_a_device_its_relay_target_and_its_downgrade_keeps_the_phones(
+    tmp_path: Path,
+) -> None:
+    engine = db.make_engine(tmp_path / 'marcel.db')
+    db.upgrade(engine, '0015')
+    with engine.begin() as conn:  # a phone paired before 0016, on ntfy
+        conn.execute(
+            text(
+                'INSERT INTO device (id, user_id, name, token_hash, ntfy_topic, created_at) '
+                f"VALUES ('dev_old', 'usr_owner', 'Phone', 'h_old', 'topic', {NOW})"
+            )
+        )
+    db.upgrade(engine)
+    assert columns(engine, 'device') >= RELAY_COLUMNS
+    with engine.connect() as conn:
+        row = conn.execute(text('SELECT id, ntfy_topic, relay_handle FROM device')).one()
+    assert tuple(row) == ('dev_old', 'topic', None)
+    db.downgrade(engine, '0015')
+    assert not columns(engine, 'device') & RELAY_COLUMNS
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT id, ntfy_topic FROM device')).all() == [
+            ('dev_old', 'topic')
+        ]

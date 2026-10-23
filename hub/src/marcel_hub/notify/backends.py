@@ -3,6 +3,9 @@
 A backend sends one `PushNotification` to one device and raises `PushFailed` when it could not.
 Retrying, rate limits and logging live in `pusher.py`, so a backend stays a thin HTTP call. The
 APNs backend (S-08.2) is `apns.ApnsNotifier`, with `kind = 'apns'`; it reads `device.apns_token`.
+The relay backend (S-22.15) is `relay.RelayNotifier`, with `kind = 'relay'`; it reads the device's
+`relay_*` target and seals each push for the phone. `agent_id` is the buddy the push is about (None
+for a push about Marcel as a whole); only the relay carries it, sealed, to the phone.
 
 An ntfy topic is a secret: anyone who knows it can read the pushes. It never goes in a log line, an
 exception message or a URL. The ntfy backend publishes as JSON to the server's root, so the topic
@@ -16,7 +19,7 @@ import httpx
 from marcel_hub.models import Device
 from marcel_hub.notify.message import PushNotification
 
-Kind = Literal['apns', 'ntfy']
+Kind = Literal['apns', 'ntfy', 'relay']
 
 SEND_TIMEOUT = 10.0
 # ntfy priorities: 3 is the default, 4 ("high") pops over the screen. 5 ("urgent") also vibrates
@@ -35,7 +38,9 @@ class PushFailed(Exception):
 class Notifier(Protocol):
     kind: ClassVar[Kind]
 
-    async def send(self, device: Device, notification: PushNotification) -> None:
+    async def send(
+        self, device: Device, notification: PushNotification, agent_id: str | None = None
+    ) -> None:
         """Send one push to one device. Raises `PushFailed`."""
         ...
 
@@ -44,6 +49,8 @@ class Notifier(Protocol):
 
 def target_kind(device: Device) -> Kind | None:
     """Which backend a device registered for, if any (`PUT /devices/{id}/push`)."""
+    if device.relay_handle:
+        return 'relay'
     if device.apns_token:
         return 'apns'
     if device.ntfy_topic:
@@ -74,7 +81,9 @@ class NtfyNotifier:
             'click': n.deep_link,
         }
 
-    async def send(self, device: Device, notification: PushNotification) -> None:
+    async def send(
+        self, device: Device, notification: PushNotification, agent_id: str | None = None
+    ) -> None:
         if not device.ntfy_topic:
             raise PushFailed(f'Device {device.id} has no ntfy topic.', retry=False)
         try:

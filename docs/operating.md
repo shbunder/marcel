@@ -99,8 +99,10 @@ environment. That covers the environment only: sessions run as the owner and can
 | `MARCEL_APNS_SANDBOX` | no | `true` only for an app run from Xcode |
 | `MARCEL_PUBLIC_URL` | set in `deploy/docker-compose.yml` | This install's own https address, without `/api`: `https://marcel-bot.com` on the NUC. Pairing links use `<public_url>/api`, and cloud quests report to `<public_url>/api/session/report`. Unset, the hub starts and logs "No public address yet: run `marcel connect`", `pair` refuses with that sentence, and no cloud quest starts. Not a secret; on a new install `marcel connect` sets it (S-22.8) |
 
-To get pushes on the phone (without them the owner sees each notice only in the app, e.g. how a redeploy went),
-add one or both to `deploy/.env.local`:
+Pushes reach the phone through the Marcel push relay with nothing to set: the app registers with the relay
+and gives the hub what it needs, and each push is sealed for the phone, so the relay never reads it
+(`hub/README.md` § Push notifications). The settings below are only for ntfy, or for the owner's own builds of
+the app that push through Apple directly; add one or both to `deploy/.env.local`:
 
 ```bash
 # ntfy

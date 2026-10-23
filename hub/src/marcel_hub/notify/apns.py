@@ -268,7 +268,9 @@ class ApnsNotifier:
             headers['apns-collapse-id'] = collapse_id(n.collapse_key)
         return headers
 
-    async def send(self, device: Device, notification: PushNotification) -> None:
+    async def send(
+        self, device: Device, notification: PushNotification, agent_id: str | None = None
+    ) -> None:
         token = device.apns_token
         if not token:
             raise PushFailed(f'Device {device.id} has no APNs token.', retry=False)
