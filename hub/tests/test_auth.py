@@ -31,6 +31,7 @@ REGISTRY = Registry().with_resource(
 
 
 APP_EVENT = validator('events.schema.json')
+PUBLIC_URL = 'https://marcel.example.ts.net'
 
 
 def validate(schema: str, body: Any) -> None:
@@ -48,7 +49,8 @@ def validate_list(schema: str, body: Any) -> None:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun')
+    return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun',
+                    public_url=PUBLIC_URL)  # fmt: skip
 
 
 @pytest.fixture
@@ -575,8 +577,9 @@ def test_a_pairing_code_without_a_buddy_pairs_a_phone_on_the_first(
     assert res.status_code == 201
     validate('IssuedPairingCode', res.json())
     assert 'buddy=' not in res.json()['link']
-    # Without `public_url` the link names the address the phone reached the hub at.
-    assert res.json()['link'].startswith('marcel://pair?hub=http%3A%2F%2Ftestserver%2Fapi&code=')
+    assert res.json()['link'].startswith(
+        'marcel://pair?hub=https%3A%2F%2Fmarcel.example.ts.net%2Fapi&code='
+    )
     new = client.post('/api/pair', json={'code': res.json()['code'], 'device_name': 'iPad'})
     with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
         device = s.get(Device, new.json()['device_id'])
@@ -616,9 +619,29 @@ def test_a_code_whose_buddy_was_archived_since_pairs_on_the_first(
         assert device is not None and device.agent_id == buddy
 
 
-def test_the_pairing_link_uses_the_public_address(settings: Settings) -> None:
-    settings = dataclasses.replace(settings, public_url='https://marcel.example.ts.net')
+def test_without_a_public_address_no_pairing_code_is_made(settings: Settings) -> None:
+    # Control: delete the `public_url` check in `new_pairing_code` and this goes red. Without it
+    # the link would name the address the phone used, maybe plain http, where the code and the
+    # new phone's token can be read on the Wi-Fi. `marcel-hub pair` refuses the same way.
+    settings = dataclasses.replace(settings, public_url=None)
     with TestClient(create_app(settings)) as client:
         me = pair(client)
-        link = client.post('/api/pairing-codes', headers=bearer(me['token'])).json()['link']
-    assert link.startswith('marcel://pair?hub=https%3A%2F%2Fmarcel.example.ts.net%2Fapi&code=')
+        res = client.post('/api/pairing-codes', headers=bearer(me['token']))
+        assert res.status_code == 400 and 'marcel connect' in res.json()['message']
+        validate('Error', res.json())
+        with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+            assert len(s.exec(select(PairingCode)).all()) == 1, 'only the first phone code, used'
+
+
+def test_every_phone_hears_when_a_new_phone_is_paired(client: TestClient) -> None:
+    # Control: delete `_tell_every_phone_of` in `pair` and this goes red. Any phone can pair
+    # another, so a lost phone pairing a stranger's must not go unseen.
+    pushed: list[tuple[Any, str | None]] = []
+    client.app.state.pusher.push = lambda n, buddy: pushed.append((n, buddy)) or True  # type: ignore[attr-defined]
+    ipad = pair(client, 'Stranger iPad')
+    [(n, buddy)] = pushed
+    assert buddy is None, 'to every phone'
+    assert n.title == 'A new phone was paired' and 'Stranger iPad' in n.body
+    assert n.deep_link == 'marcel://status' and n.collapse_key == f'paired-{ipad["device_id"]}'
+    client.post('/api/pair', json={'code': 'WRONGCOD', 'device_name': 'x'})
+    assert len(pushed) == 1, 'a refused code tells no one'

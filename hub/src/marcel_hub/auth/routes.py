@@ -15,6 +15,7 @@ from sqlmodel import Session, col, select
 from marcel_hub.auth.deps import DbSession, current_device, require_device
 from marcel_hub.auth.errors import ApiError
 from marcel_hub.auth.tokens import (
+    NO_PUBLIC_URL,
     PAIRING_CODE_TTL,
     PairGuessLimit,
     create_pairing_code,
@@ -169,7 +170,29 @@ def pair(body: PairRequest, request: Request, session: DbSession) -> dict[str, s
         if exc.code == 'pairing_code_invalid':
             limit.failed()
         raise
+    _tell_every_phone_of(request, device)
     return {'device_id': device.id, 'user_id': device.user_id, 'token': token}
+
+
+def _tell_every_phone_of(request: Request, device: Device) -> None:
+    """Any paired phone can pair another (B-49), so every phone hears of a new one: a lost phone
+    that pairs a stranger's is seen, and removed, in Settings."""
+    from marcel_hub.notify.message import STATUS_LINK, PushNotification, clip  # notify/ uses auth/
+
+    pusher = getattr(request.app.state, 'pusher', None)
+    if pusher is None:
+        return
+    pusher.push(
+        PushNotification(
+            title='A new phone was paired',
+            body=clip(f'{device.name} can now use Marcel. Not you? Remove it in Settings.', 300),
+            category='note',
+            level='normal',
+            deep_link=STATUS_LINK,
+            collapse_key=f'paired-{device.id}',
+        ),
+        None,  # every phone: it is about the install, not one buddy
+    )
 
 
 @router.get('/me')
@@ -237,12 +260,15 @@ def new_pairing_code(
     request: Request, session: DbSession, body: NewPairingCode | None = None
 ) -> dict[str, Any]:
     """A code that pairs another phone, as `marcel-hub pair` prints (B-49). The link's hub is
-    the hub's public address; without one, the address this phone reached the hub at."""
+    the hub's public https address; without one there is no code, as with `marcel-hub pair`: a
+    phone must never pair over plain http, where the code and its token could be read."""
     agent_id = body.agent_id if body is not None else None
     if agent_id is not None:
         find_live_buddy(session, agent_id)
     public_url: str | None = request.app.state.settings.public_url
-    hub = hub_api(public_url) if public_url else str(request.base_url).rstrip('/') + '/api'
+    if not public_url:
+        raise ApiError(400, 'bad_request', f'No pairing code was made. {NO_PUBLIC_URL}')
+    hub = hub_api(public_url)
     now = utcnow()
     code = create_pairing_code(session, agent_id=agent_id, now=now)
     return {

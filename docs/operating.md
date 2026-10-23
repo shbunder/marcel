@@ -146,7 +146,10 @@ and lists the buddies there are.
 
 A paired phone can make a code too (`POST /api/pairing-codes`, optionally with the buddy), add a buddy
 (`POST /api/agents`), archive one (`POST /api/agents/{id}/archive`; never the last one) and choose
-which buddy any phone shows (`PATCH /api/devices/{id}`).
+which buddy any phone shows (`PATCH /api/devices/{id}`). Like `pair`, `POST /api/pairing-codes`
+makes no code until `MARCEL_PUBLIC_URL` is set, so a phone never pairs over plain http. Every phone
+gets a push when a new phone is paired ("A new phone was paired … Not you? Remove it in Settings"),
+so a lost phone that pairs another is seen.
 
 Pushes follow the buddy a phone shows: a buddy's quests, approvals, notices and digests go to the phones
 showing that buddy, and move with it when a phone switches. Notices about no buddy (a redeploy, a
