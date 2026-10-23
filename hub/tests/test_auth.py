@@ -414,9 +414,9 @@ def test_a_relay_target_is_stored_and_its_secret_never_shown(
     [{'relay_url': None}, {'handle': None}, {'send_secret': None}, {'device_key': None},
      {'relay_url': 'http://relay.example'}, {'relay_url': 'https://user@relay.example'},
      {'relay_url': 'https://relay.example/?x=1'}, {'handle': 'short'}, {'send_secret': 'x' * 44},
-     {'device_key': 'njCdIc2oG-JgfnBbP2hZZXoNELO71-teMzDch9iRfBt'}],
+     {'device_key': 'njCdIc2oG-JgfnBbP2hZZXoNELO71-teMzDch9iRfBt'}, {'device_key': 'A' * 43}],
     ids=['no-url', 'no-handle', 'no-secret', 'no-key', 'http', 'userinfo', 'query',
-         'bad-handle', 'bad-secret', 'bad-key'],
+         'bad-handle', 'bad-secret', 'bad-key', 'zero-key'],
 )  # fmt: skip
 def test_a_bad_relay_target_is_400_and_stores_nothing(
     client: TestClient, change: dict[str, Any]

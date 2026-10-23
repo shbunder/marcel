@@ -4,10 +4,12 @@ One install is one person (ADR-013), so every paired phone sees and changes ever
 here compares the caller with the phone it names. An unknown id answers 404.
 """
 
+import base64
 import re
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlmodel import Session, col, select
@@ -73,7 +75,20 @@ class PushTarget(BaseModel):
             missing = [f'`{name}`' for name in RELAY_FIELDS if not getattr(self, name)]
             if missing:
                 raise ValueError(f'{", ".join(missing)} needed when kind is relay')
+            if not usable_device_key(self.device_key or ''):
+                raise ValueError('`device_key` is not a public key a push can be sealed for')
         return self
+
+
+def usable_device_key(device_key: str) -> bool:
+    """True when the phone's X25519 key can be sealed for: a low-order key (all zeros, say) gives
+    no shared secret, so every push to it would fail."""
+    raw = base64.urlsafe_b64decode(device_key + '=' * (-len(device_key) % 4))
+    try:
+        X25519PrivateKey.generate().exchange(X25519PublicKey.from_public_bytes(raw))
+    except ValueError:
+        return False
+    return True
 
 
 def buddy_of(session: Session, device: Device) -> str | None:

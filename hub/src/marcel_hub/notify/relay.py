@@ -98,11 +98,15 @@ class RelayNotifier:
                                     device.relay_device_key)  # fmt: skip
         if not (url and handle and secret and key):
             raise PushFailed(f'Device {device.id} has no push relay target.', retry=False)
-        body = {
-            'handle': handle,
-            'sealed': seal(sealed_content(notification, agent_id), key),
-            'urgent': notification.level == 'urgent',
-        }
+        try:
+            sealed = seal(sealed_content(notification, agent_id), key)
+        except ValueError:  # not a usable X25519 key (e.g. all zeros): no push can open
+            raise PushFailed(
+                f'Device {device.id} gave a public key no push can be sealed for; the app must '
+                'register again.',
+                retry=False,
+            ) from None
+        body = {'handle': handle, 'sealed': sealed, 'urgent': notification.level == 'urgent'}
         try:
             res = await self.client.post(
                 url.rstrip('/') + '/v1/push',

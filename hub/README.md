@@ -49,7 +49,7 @@ names the file.
 | `brain_cwd` | `MARCEL_BRAIN_CWD` | `$MARCEL_HOME/brain`. The brain workspace (`brain/README.md`); the hub keeps one brain running there (see "The brain: keep-alive and rollover") |
 | `brain_rollover_on_context` | `MARCEL_BRAIN_ROLLOVER_ON_CONTEXT` | `false`. Claude Code's own auto-compact keeps the brain's context (S-06.8, ADR-010). `true` turns the S-06.7 rollover by context size back on; anything other than true or false stops the hub at start |
 | `brain_context_window` | `MARCEL_BRAIN_CONTEXT_WINDOW` | `200000`, the Opus context window in tokens. Only with `brain_rollover_on_context`: once a brain turn ends with its context past 70 % of this, the brain rolls over (reason `context_full`). A brain model named with Claude Code's `[1m]` suffix (e.g. `opus[1m]`) uses 1 000 000 instead. Less than 10000, or not a number, stops the hub at start |
-| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no pushes. The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
+| `ntfy_server` | `MARCEL_NTFY_SERVER` | unset: no ntfy pushes (phones use the push relay). The ntfy server phones subscribe on, e.g. `https://ntfy.sh` or a self-hosted one. Must start with `https://` or `http://` |
 | `apns_key` | `MARCEL_APNS_KEY` | unset: no direct APNs pushes (`push.apns` false; phones use the push relay). Only for the owner's own builds of the app. The APNs auth key: the text of the `AuthKey_<id>.p8` file from the Apple developer site (Keys, with Apple Push Notifications service). The whole file, the file on one line with `\n` for its line breaks, or only the lines between `BEGIN` and `END`. Set it in `deploy/.env.local`, never in the TOML file or git. Never logged or shown. A key that is not a P-256 `.p8` key stops the hub at start |
 | `apns_key_id` | `MARCEL_APNS_KEY_ID` | unset. The key's 10-character id (in the file name and on the Keys page). `deploy/.env.local`; never logged |
 | `apns_team_id` | `MARCEL_APNS_TEAM_ID` | unset. The Apple developer team id (Membership details). `deploy/.env.local`; never logged |
@@ -984,7 +984,8 @@ Nothing else pushes: no progress, no `working`, `queued`, `unknown` or `stopped`
   `<relay_url>/v1/push` with the send secret as the bearer token.
   - **What the relay sees:** the phone's random handle, the sealed bytes and whether the push is
     urgent (approvals and broken things). Never the text, the link, the buddy, the task or approval
-    ids, or which hub sent it. It has no key that opens the box; only the phone has.
+    ids. It has no key that opens the box; only the phone has. It does see the address each
+    push comes from (the home server's) and roughly how long each sealed push is.
   - **The phone is gone** (410 `handle_gone`: Apple no longer knows its token). The hub clears its
     relay target, unless the phone registered a new one meanwhile. `GET /api/devices` then says
     `push: none`, and the app registers again when it next opens.

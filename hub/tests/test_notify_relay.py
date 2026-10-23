@@ -268,6 +268,18 @@ def test_a_device_without_a_relay_target_is_refused_without_a_request(engine: En
     assert relay.requests == []
 
 
+def test_a_key_no_push_can_be_sealed_for_fails_cleanly(engine: Engine) -> None:
+    """A low-order key (all zeros) from before the route checked it: a clean, final
+    `PushFailed`, so the pusher still tells the other phones an urgent push was lost."""
+    relay = FakeRelay()
+    device = relay_device(engine)
+    device.relay_device_key = 'A' * 43
+    with pytest.raises(PushFailed) as err:
+        run(relay.notifier(engine).send(device, DONE))
+    assert err.value.retry is False
+    assert relay.requests == []
+
+
 def test_a_5xx_is_retried_by_the_pusher_like_the_other_backends(engine: Engine) -> None:
     relay = FakeRelay(502)
     add_agent(engine, owner='usr_owner')
