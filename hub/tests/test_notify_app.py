@@ -126,14 +126,14 @@ def test_me_reports_the_configured_ntfy_server(settings: Settings, tmp_path: Pat
         me = pair(client)
         body = client.get('/api/me', headers=bearer(me['token'])).json()
     validate('Me', body)
-    assert body['push'] == {'apns': False, 'ntfy': True, 'ntfy_server': NTFY}
+    assert body['push'] == {'apns': False, 'ntfy': True, 'ntfy_server': NTFY, 'relay': True}
 
     off = Settings(data_dir=tmp_path / 'b', db_path=tmp_path / 'off.db')
     with TestClient(create_app(off)) as client:
         me = pair(client)
         body = client.get('/api/me', headers=bearer(me['token'])).json()
     validate('Me', body)
-    assert body['push'] == {'apns': False, 'ntfy': False}
+    assert body['push'] == {'apns': False, 'ntfy': False, 'relay': True}
 
 
 def test_the_app_pushes_to_a_registered_ntfy_topic(settings: Settings) -> None:

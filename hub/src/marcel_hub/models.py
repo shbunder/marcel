@@ -167,6 +167,12 @@ class Device(SQLModel, table=True):
     token_hash: str = Field(unique=True, index=True)
     apns_token: str | None = None
     ntfy_topic: str | None = None
+    # A push relay target (app-api 0.8.0 `PushTarget` `kind: relay`, S-22.15, migration 0016): all
+    # four or none. `relay_secret` is the handle's `send_secret`; it is never shown or logged.
+    relay_url: str | None = None
+    relay_handle: str | None = None
+    relay_secret: str | None = Field(default=None, repr=False)
+    relay_device_key: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     last_seen: datetime | None = None
     # The buddy this phone shows (app-api 0.8.0 `Device.agent_id`, B-49): set at pairing and by

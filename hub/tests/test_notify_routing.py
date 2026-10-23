@@ -349,3 +349,28 @@ def test_a_phone_whose_buddy_was_archived_gets_the_first_buddys_pushes(engine: E
     task = put_task(engine, S.done, agent_id='agt_marcel')
     drive(pusher, lambda: pusher.on_state(task, 'done'))
     assert sorted(d for d, _ in notifier.sent) == ['dev_a', 'dev_b']
+
+
+def test_an_approval_for_a_buddy_no_phone_shows_reaches_every_phone(engine: Engine) -> None:
+    """An approval never waits silently (lead, S-22.15): with no phone on Pip, Pip's approval goes
+    to every phone. Control: delete the fallback in `Pusher._devices` and this goes red."""
+    two_buddies_and_phones(engine)
+    show(engine, 'dev_b', 'agt_marcel')  # now no phone shows Pip
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    done = put_task(engine, S.done, agent_id='agt_pip')
+    drive(pusher, lambda: pusher.on_state(done, 'done'))
+    assert notifier.sent == [], "Pip's other pushes still go only to the phones showing Pip"
+    asking = put_task(engine, S.needs_you, agent_id='agt_pip')
+    add_approval(engine, asking)
+    drive(pusher, lambda: pusher.on_state(asking, 'needs_you'))  # the task event's way
+    assert sorted((d, n.category) for d, n in notifier.sent) == [
+        ('dev_a', 'approval'),
+        ('dev_b', 'approval'),
+    ]
+    assert notifier.buddies[-2:] == ['agt_pip', 'agt_pip'], 'a tap still opens Pip'
+    notifier.sent.clear()
+    show(engine, 'dev_b', 'agt_pip')  # a phone shows Pip again: only it gets Pip's next approval
+    later = add_approval(engine, put_task(engine, S.needs_you, agent_id='agt_pip'), 'apr_2')
+    drive(pusher, lambda: pusher.approval_opened(later))  # the channel gateway's way
+    assert [d for d, _ in notifier.sent] == ['dev_b']

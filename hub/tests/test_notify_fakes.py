@@ -45,15 +45,19 @@ class RecordingNotifier:
 
     def __init__(self, fail: PushFailed | Exception | None = None) -> None:
         self.sent: list[tuple[str, PushNotification]] = []
+        self.buddies: list[str | None] = []  # the `agent_id` of each push sent
         self.tries = 0
         self.fail = fail
         self.closed = False
 
-    async def send(self, device: Device, notification: PushNotification) -> None:
+    async def send(
+        self, device: Device, notification: PushNotification, agent_id: str | None = None
+    ) -> None:
         self.tries += 1
         if self.fail is not None:
             raise self.fail
         self.sent.append((device.id, notification))
+        self.buddies.append(agent_id)
 
     async def aclose(self) -> None:
         self.closed = True

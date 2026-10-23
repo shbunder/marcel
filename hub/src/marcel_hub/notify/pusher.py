@@ -2,7 +2,8 @@
 
 - **Which phones.** A buddy's push (its tasks, its approvals, its notices and digests) goes to the
   phones showing that buddy (`Device.agent_id`, through `auth.routes.buddy_of`), so switching a
-  phone's buddy moves that buddy's next push to it (B-49). A push about no buddy (a redeploy, a
+  phone's buddy moves that buddy's next push to it (B-49). An approval for a buddy no phone shows
+  goes to every phone, so it never waits silently (S-22.15). A push about no buddy (a redeploy, a
   backup, usage, a logged-out Claude, a self-change, something broken) goes to every phone.
 
 - **Where events come from.** Task state changes arrive through `TaskPushes`, the task registry's
@@ -19,7 +20,7 @@
   `RETRY_DELAYS` and then given up and logged; nothing is ever raised into the caller. When an
   urgent push could not be delivered, one "a notification did not arrive" push goes to every
   device, in case another one can still be reached.
-- **Secrets.** Logs name the device id, never its ntfy topic or APNs token.
+- **Secrets.** Logs name the device id, never its ntfy topic, APNs token or relay target.
 """
 
 import asyncio
@@ -96,6 +97,7 @@ class Pusher:
         body: dict[str, Any] = {'apns': 'apns' in self.notifiers, 'ntfy': 'ntfy' in self.notifiers}
         if body['ntfy']:
             body['ntfy_server'] = self.ntfy_server
+        body['relay'] = 'relay' in self.notifiers
         return body
 
     def task_publisher(self, inner: Publisher | None = None) -> 'TaskPushes':
@@ -256,7 +258,8 @@ class Pusher:
         """Send `n` to every phone that takes pushes and shows `buddy` (every phone when None).
         Logs failures; never raises."""
         try:
-            devices = self._devices(buddy)
+            devices = self._devices(buddy, fallback=n.category == 'approval')
+            about = None if buddy == OWNER_USER_ID else buddy
             sends = []
             for device in devices:
                 kind = target_kind(device)
@@ -269,7 +272,7 @@ class Pusher:
                         kind,
                     )
                     continue
-                sends.append(self._send(notifier, device, n))
+                sends.append(self._send(notifier, device, n, about))
             if not sends:
                 log.info('No phone that takes pushes is to get "%s", so it was not sent.', n.title)
                 return
@@ -279,11 +282,13 @@ class Pusher:
         except Exception:
             log.exception('Sending "%s" failed. Nothing more is tried.', n.title)
 
-    async def _send(self, notifier: Notifier, device: Device, n: PushNotification) -> bool:
+    async def _send(
+        self, notifier: Notifier, device: Device, n: PushNotification, buddy: str | None
+    ) -> bool:
         tries = len(self.retry_delays) + 1
         for attempt in range(tries):
             try:
-                await notifier.send(device, n)
+                await notifier.send(device, n, agent_id=buddy)
             except PushFailed as exc:
                 if exc.retry and attempt + 1 < tries:
                     log.info('A push to device %s failed: %s Trying again.', device.id, exc)
@@ -302,17 +307,23 @@ class Pusher:
             return True
         return False  # pragma: no cover - the loop always returns
 
-    def _devices(self, buddy: str | None) -> list[Device]:
+    def _devices(self, buddy: str | None, fallback: bool = False) -> list[Device]:
         """The phones that take pushes; with a buddy, those showing it, and any phone that shows
-        no buddy at all (none is live yet), so it misses nothing."""
+        no buddy at all (none is live yet), so it misses nothing. With `fallback` (an approval),
+        every phone when none shows that buddy: an approval never waits silently."""
         query = select(Device).where(
-            or_(col(Device.apns_token).is_not(None), col(Device.ntfy_topic).is_not(None))
+            or_(
+                col(Device.apns_token).is_not(None),
+                col(Device.ntfy_topic).is_not(None),
+                col(Device.relay_handle).is_not(None),
+            )
         )
         with Session(self.engine) as s:
             devices = list(s.exec(query.order_by(col(Device.id))))
             if buddy is None or buddy == OWNER_USER_ID:
                 return devices
-            return [d for d in devices if buddy_of(s, d) in (buddy, None)]
+            showing = [d for d in devices if buddy_of(s, d) in (buddy, None)]
+            return devices if fallback and not showing else showing
 
     # Background jobs --------------------------------------------------------------------------
 

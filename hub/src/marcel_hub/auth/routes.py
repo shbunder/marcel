@@ -39,13 +39,24 @@ class PairRequest(BaseModel):
 
 # An APNs device token as iOS hands it over, hex-encoded (32 bytes today; Apple allows longer).
 APNS_TOKEN = re.compile(r'(?:[0-9a-fA-F]{2}){32,100}')
+# A push relay target (app-api 0.8.0 `PushTarget`, S-22.15), with the contract's patterns. The
+# relay's address must be https with no user, query or fragment: the send secret goes there.
+RELAY_URL = r'^https://[^/?#@\s]+(/[^?#\s]*)?$'
+RELAY_HANDLE = r'^[A-Za-z0-9_-]{22}$'
+RELAY_SECRET = r'^[A-Za-z0-9_-]{43}$'
+DEVICE_KEY = r'^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'  # 32 bytes, base64url without padding
+RELAY_FIELDS = ('relay_url', 'handle', 'send_secret', 'device_key')
 
 
 class PushTarget(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['apns', 'ntfy']
+    kind: Literal['apns', 'ntfy', 'relay']
     apns_token: str | None = Field(default=None, max_length=200)
     ntfy_topic: str | None = Field(default=None, max_length=200)
+    relay_url: str | None = Field(default=None, max_length=500, pattern=RELAY_URL)
+    handle: str | None = Field(default=None, pattern=RELAY_HANDLE)
+    send_secret: str | None = Field(default=None, pattern=RELAY_SECRET, repr=False)
+    device_key: str | None = Field(default=None, pattern=DEVICE_KEY)
 
     @model_validator(mode='after')
     def _token_for_kind(self) -> Self:
@@ -58,6 +69,10 @@ class PushTarget(BaseModel):
             )
         if self.kind == 'ntfy' and not self.ntfy_topic:
             raise ValueError('`ntfy_topic` is needed when kind is ntfy')
+        if self.kind == 'relay':
+            missing = [f'`{name}`' for name in RELAY_FIELDS if not getattr(self, name)]
+            if missing:
+                raise ValueError(f'{", ".join(missing)} needed when kind is relay')
         return self
 
 
@@ -84,7 +99,9 @@ class NewPairingCode(BaseModel):
 def device_json(session: Session, device: Device, current: Device | None) -> dict[str, Any]:
     """The contract's `Device`. `current` is the calling phone; None in an event, which every
     phone reads, so it carries no `current`."""
-    push = 'apns' if device.apns_token else 'ntfy' if device.ntfy_topic else 'none'
+    from marcel_hub.notify.backends import target_kind  # notify/ builds on auth/
+
+    push = target_kind(device) or 'none'
     body: dict[str, Any] = {
         'id': device.id,
         'name': device.name,
@@ -239,6 +256,11 @@ def set_device_push(
     device = find_device(session, device_id)
     device.apns_token = body.apns_token if body.kind == 'apns' else None
     device.ntfy_topic = body.ntfy_topic if body.kind == 'ntfy' else None
+    relay = body.kind == 'relay'  # one target per phone: any other kind clears it
+    device.relay_url = body.relay_url if relay else None
+    device.relay_handle = body.handle if relay else None
+    device.relay_secret = body.send_secret if relay else None
+    device.relay_device_key = body.device_key if relay else None
     session.add(device)
     session.commit()
     session.refresh(device)
