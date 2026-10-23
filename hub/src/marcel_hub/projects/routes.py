@@ -1,6 +1,6 @@
 """`/api/projects` and `POST /api/tasks/{id}/move` from `contracts/app-api.yaml`.
 
-Only the owner of a project's agent sees it; anyone else gets 404 `project_not_found`.
+Every phone sees every buddy's projects (ADR-013); an unknown id gets 404 `project_not_found`.
 """
 
 from collections.abc import Callable
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
-from marcel_hub.auth import current_device, require_device
+from marcel_hub.auth import require_device
 from marcel_hub.models import Project, Task
 from marcel_hub.projects.store import (
     AgentNotFound,
@@ -87,8 +87,7 @@ def list_projects(request: Request, agent_id: str | None = None, archived: str =
         return bad_request('agent_id is required.')
     if archived not in ('true', 'false'):
         return bad_request('archived must be true or false.')
-    user_id = current_device(request).user_id
-    return _store(request).list_projects(agent_id, user_id, archived == 'true')
+    return _store(request).list_projects(agent_id, archived == 'true')
 
 
 @router.post('/projects')
@@ -96,18 +95,14 @@ async def create_project(request: Request) -> Any:
     body = await _body(request, NewProject, required=True)
     if isinstance(body, JSONResponse):
         return body
-    user_id = current_device(request).user_id
     fields = _fields(body)
     agent_id, name, slug = fields.pop('agent_id'), fields.pop('name'), fields.pop('slug', None)
-    return _answer(
-        request, lambda: _store(request).create(user_id, agent_id, name, slug, **fields), 201
-    )
+    return _answer(request, lambda: _store(request).create(agent_id, name, slug, **fields), 201)
 
 
 @router.get('/projects/{project_id}')
 def get_project(request: Request, project_id: str) -> Any:
-    user_id = current_device(request).user_id
-    return _answer(request, lambda: _store(request).get(project_id, user_id))
+    return _answer(request, lambda: _store(request).get(project_id))
 
 
 @router.patch('/projects/{project_id}')
@@ -120,14 +115,12 @@ async def update_project(request: Request, project_id: str) -> Any:
         return bad_request('Send at least one field to change.')
     if 'name' in changes and changes['name'] is None:
         return bad_request('name cannot be empty.')
-    user_id = current_device(request).user_id
-    return _answer(request, lambda: _store(request).update(project_id, user_id, changes))
+    return _answer(request, lambda: _store(request).update(project_id, changes))
 
 
 @router.post('/projects/{project_id}/archive')
 def archive_project(request: Request, project_id: str) -> Any:
-    user_id = current_device(request).user_id
-    return _answer(request, lambda: _store(request).archive(project_id, user_id))
+    return _answer(request, lambda: _store(request).archive(project_id))
 
 
 @router.post('/tasks/{task_id}/move')
@@ -135,10 +128,9 @@ async def move_task(request: Request, task_id: str) -> Any:
     body = await _body(request, TaskMove, required=True)
     if isinstance(body, JSONResponse):
         return body
-    user_id = current_device(request).user_id
     registry: TaskRegistry = request.app.state.tasks
     try:
-        task: Task = _store(request).move(task_id, body.project_id, user_id)
+        task: Task = _store(request).move(task_id, body.project_id)
     except TaskNotFound as exc:
         return error(404, 'task_not_found', str(exc))
     except ProjectNotFound:

@@ -630,7 +630,7 @@ async def move_task(request: Request, brain: BrainDep, task_id: str) -> Any:
     if isinstance(project, JSONResponse):
         return project
     try:
-        _projects(request).move(task_id, project.id, brain.owner_user_id)
+        _projects(request).move(task_id, project.id)
     except ProjectArchived as exc:  # pragma: no cover - archived between the two reads
         return error(409, 'project_archived', str(exc))
     registry = _tasks(request)
@@ -673,7 +673,7 @@ def _fields(model: BaseModel) -> dict[str, Any]:
 
 @router.get('/projects')
 def list_projects(request: Request, brain: BrainDep, archived: bool = False) -> Any:
-    return _projects(request).list_projects(brain.agent_id, brain.owner_user_id, archived)
+    return _projects(request).list_projects(brain.agent_id, archived)
 
 
 @router.post('/projects')
@@ -685,9 +685,7 @@ async def create_project(request: Request, brain: BrainDep) -> Any:
     name, slug = fields.pop('name'), fields.pop('slug', None)
     store = _projects(request)
     try:
-        project = store.create(
-            brain.owner_user_id, brain.agent_id, name, slug, by='agent', **fields
-        )
+        project = store.create(brain.agent_id, name, slug, by='agent', **fields)
     except SlugTaken as exc:
         return error(
             409, 'slug_taken', f'A live project is already called “{exc}”. Pick another slug.'
@@ -707,7 +705,7 @@ async def update_project(request: Request, brain: BrainDep, project: str) -> Any
     if isinstance(found, JSONResponse):
         return found
     store = _projects(request)
-    return store.to_api(store.update(found.id, brain.owner_user_id, changes))
+    return store.to_api(store.update(found.id, changes))
 
 
 @router.post('/projects/{project}/notes')
@@ -935,11 +933,7 @@ async def notify(request: Request, brain: BrainDep) -> Any:
         message_id, name = message.id, agent.name
     pusher = getattr(request.app.state, 'pusher', None)
     pushed = (
-        bool(
-            pusher.note(
-                brain.agent_id, message_id, name, body.text, body.level, brain.owner_user_id
-            )
-        )
+        bool(pusher.note(brain.agent_id, message_id, name, body.text, body.level))
         if pusher is not None
         else False
     )

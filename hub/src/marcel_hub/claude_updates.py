@@ -306,7 +306,7 @@ class ClaudeUpdates:
             message_id, agent_id, name = message.id, agent.id, agent.name
         if push and self.pusher is not None:
             try:
-                self.pusher.note(agent_id, message_id, name, text, level, OWNER)
+                self.pusher.note(agent_id, message_id, name, text, level, everyone=True)
             except Exception:  # the notice is in the chat; the push is extra
                 log.exception('Could not push the Claude Code notice.')
 

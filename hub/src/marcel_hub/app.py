@@ -12,6 +12,7 @@ process with `uv run marcel-hub` (S-22.1, ADR-013). The Docker hub on the NUC se
 import functools
 import logging
 import os
+import platform
 import sys
 import tomllib
 from collections.abc import AsyncIterator
@@ -300,7 +301,20 @@ def health(request: Request) -> dict[str, Any]:
         runner = {'reachable': True}
     else:
         runner = {'reachable': False, 'reason': watch.reason}
-    return {'ok': db_ok, 'version': __version__, 'runner': runner}
+    body: dict[str, Any] = {'ok': db_ok, 'version': __version__, 'runner': runner}
+    if (kind := host_os()) is not None:
+        body['os'] = kind
+    return body
+
+
+# `Health.os` (app-api 0.8.0, B-51): the app says "Your Mac is asleep" or "your computer".
+HOST_OS = {'Darwin': 'macos', 'Linux': 'linux'}
+
+
+def host_os(system: str | None = None) -> str | None:
+    """`macos` or `linux` from `platform.system()`; None on any other system (the contract
+    names only those two, and the app then says "your computer")."""
+    return HOST_OS.get(system if system is not None else platform.system())
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

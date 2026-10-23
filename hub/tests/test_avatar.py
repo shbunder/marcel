@@ -134,11 +134,9 @@ def test_an_agent_without_a_look_draws_from_its_animal(hub: ChannelHub) -> None:
         assert store.look_of(agent)['species'] == 'giraffe'
 
 
-def test_another_persons_agent_is_not_found(hub: ChannelHub) -> None:
-    other = {'Authorization': f'Bearer {hub.phone("usr_kid")}'}
-    res = hub.client.get(f'/api/agents/{hub.agent_id}/avatar', headers=other)
+def test_an_unknown_agents_avatar_is_not_found(hub: ChannelHub) -> None:
+    res = hub.client.get('/api/agents/agt_nope/avatar')
     assert res.status_code == 404 and res.json()['code'] == 'agent_not_found'
-    assert hub.client.get('/api/agents/agt_nope/avatar').status_code == 404
 
 
 def test_a_sheet_is_drawn_once_and_kept_on_disk(
@@ -254,9 +252,9 @@ def test_at_start_up_every_agent_without_a_look_gets_one(tmp_path: Path) -> None
     db.upgrade(engine)
     with Session(engine) as s:
         for agent_id, owner, name in (
-            ('agt_a', 'usr_owner', 'Marcel'),  # the owner's own: Marcel's look
-            ('agt_b', 'usr_kid', 'Pip'),  # anyone else's: from its name
-            ('agt_c', 'usr_kid', 'Fox'),
+            ('agt_a', 'usr_owner', 'Marcel'),  # the oldest buddy: Marcel's look
+            ('agt_b', 'usr_owner', 'Pip'),  # any other: from its name
+            ('agt_c', 'usr_owner', 'Fox'),
         ):
             s.add(Agent(id=agent_id, owner_user_id=owner, name=name, animal='giraffe',
                         palette='marcel', seed=name))  # fmt: skip

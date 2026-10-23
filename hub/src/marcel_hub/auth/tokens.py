@@ -76,15 +76,28 @@ def new_pairing_code() -> str:
     return ''.join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
 
 
-def pairing_url(hub: str, code: str) -> str:
-    """The `PairingCode` URL the QR code encodes."""
-    return f'marcel://pair?hub={quote(hub, safe="")}&code={code}'
+def pairing_url(hub: str, code: str, buddy: str | None = None) -> str:
+    """The `PairingCode` URL the QR code encodes; with `buddy` (an agent id), `&buddy=` names the
+    buddy the new phone starts on (app-api 0.8.0)."""
+    url = f'marcel://pair?hub={quote(hub, safe="")}&code={code}'
+    return f'{url}&buddy={quote(buddy, safe="")}' if buddy else url
+
+
+def live_buddy(session: Session, agent_id: str) -> Agent | None:
+    """The buddy `agent_id` while it is live (not archived), else None."""
+    agent = session.get(Agent, agent_id)
+    return agent if agent is not None and agent.archived_at is None else None
 
 
 def create_pairing_code(
-    session: Session, *, user_id: str = OWNER_USER_ID, now: datetime | None = None
+    session: Session,
+    *,
+    user_id: str = OWNER_USER_ID,
+    agent_id: str | None = None,
+    now: datetime | None = None,
 ) -> str:
-    """Store a new code (hashed) that works once, for 10 minutes from `now`. Old codes go."""
+    """Store a new code (hashed) that works once, for 10 minutes from `now`. Old codes go. With
+    `agent_id`, the phone it pairs starts on that buddy (`redeem_pairing_code`)."""
     session.exec(
         delete(PairingCode).where(
             or_(col(PairingCode.used_at).is_not(None), col(PairingCode.expires_at) <= utcnow())
@@ -98,6 +111,7 @@ def create_pairing_code(
             user_id=user_id,
             created_at=now,
             expires_at=now + PAIRING_CODE_TTL,
+            agent_id=agent_id,
         )
     )
     session.commit()
@@ -116,8 +130,8 @@ def first_buddy(session: Session) -> str | None:
 
 
 def redeem_pairing_code(session: Session, code: str, device_name: str) -> tuple[Device, str]:
-    """Use up `code` and create a device that shows the first buddy. Returns the device and its
-    token (shown once)."""
+    """Use up `code` and create a device that shows the code's buddy while it is live, else the
+    first buddy. Returns the device and its token (shown once)."""
     code_hash = hash_secret(code.strip().upper())
     row = session.get(PairingCode, code_hash)
     if row is None:
@@ -136,11 +150,12 @@ def redeem_pairing_code(session: Session, code: str, device_name: str) -> tuple[
             400, 'pairing_code_used', f'That pairing code was already used. {PAIR_AGAIN}'
         )
     token = new_token()
+    named = live_buddy(session, row.agent_id) if row.agent_id is not None else None
     device = Device(
         user_id=row.user_id,
         name=device_name,
         token_hash=hash_secret(token),
-        agent_id=first_buddy(session),
+        agent_id=named.id if named is not None else first_buddy(session),
     )
     session.add(device)
     session.commit()

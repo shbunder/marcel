@@ -15,13 +15,7 @@ METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 
 # App API operations the contract has and the hub does not serve yet, with the work that adds
 # them. The last test fails as soon as one is served, so this list can only shrink.
-PENDING_OPERATIONS: dict[tuple[str, str], str] = {
-    # app-api 0.8.0 (S-02.13): buddies and a phone's buddy, served by S-22.27.
-    ('POST', '/api/agents'): 'S-22.27',
-    ('POST', '/api/agents/{}/archive'): 'S-22.27',
-    ('PATCH', '/api/devices/{}'): 'S-22.27',
-    ('POST', '/api/pairing-codes'): 'S-22.27',
-}
+PENDING_OPERATIONS: dict[tuple[str, str], str] = {}
 # App API operations the contract removed and the hub still serves, with the work that removes
 # them. app-api 0.8.0 (S-02.13, ADR-013) dropped the people model; S-22.11 removed the routes.
 # The last test fails as soon as one is gone, so this list can only shrink.
@@ -32,12 +26,7 @@ PENDING_BRAIN_OPERATIONS: dict[tuple[str, str], str] = {}
 PENDING_SESSION_OPERATIONS: dict[tuple[str, str], str] = {}
 # Query parameters app-api.yaml names on a route the hub serves but does not read yet, with the
 # work that reads them. The test below fails as soon as one is read, so this list can only shrink.
-PENDING_QUERY_PARAMETERS: dict[tuple[str, str, str], str] = {
-    # app-api 0.8.1: the Notebook follows the phone's buddy (S-22.12's contract request).
-    ('GET', '/api/memory', 'agent_id'): 'S-22.27',
-    ('GET', '/api/memory/files/{}', 'agent_id'): 'S-22.27',
-    ('PUT', '/api/memory/files/{}', 'agent_id'): 'S-22.27',
-}
+PENDING_QUERY_PARAMETERS: dict[tuple[str, str, str], str] = {}
 # Query parameters a route reads by hand rather than declaring them, so FastAPI cannot see them.
 READ_BY_HAND: set[tuple[str, str, str]] = {('GET', '/api/ws', 'since')}  # ws.py, query_params
 

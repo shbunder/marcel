@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
 
-from marcel_hub.auth import current_device, require_device
+from marcel_hub.auth import require_device
 from marcel_hub.models import Agent
 from marcel_hub.schedule.cron import CronError
 from marcel_hub.schedule.scheduler import ScheduleBuiltin, ScheduleNotFound, Scheduler
@@ -51,17 +51,18 @@ def _not_found() -> JSONResponse:
     return error(404, 'schedule_not_found', 'That schedule is not on this hub.')
 
 
-def _owns_agent(request: Request, agent_id: str) -> bool:
+def _is_buddy(request: Request, agent_id: str) -> bool:
+    """`agent_id` is a buddy on this hub (every buddy is the one person's)."""
     with Session(request.app.state.engine) as s:
         agent = s.get(Agent, agent_id)
-    return agent is not None and agent.owner_user_id == current_device(request).user_id
+    return agent is not None
 
 
 @router.get('/schedules')
 def list_schedules(request: Request, agent_id: str | None = None) -> Any:
     if not agent_id:
         return bad_request('agent_id is required.')
-    if not _owns_agent(request, agent_id):
+    if not _is_buddy(request, agent_id):
         return []
     return _scheduler(request).list(agent_id)
 
@@ -71,8 +72,8 @@ async def create_schedule(request: Request) -> Any:
     body = await _body(request, NewSchedule, required=True)
     if isinstance(body, JSONResponse):
         return body
-    if not _owns_agent(request, body.agent_id):
-        return bad_request('agent_id is not one of your agents.')
+    if not _is_buddy(request, body.agent_id):
+        return bad_request('agent_id is not a buddy on this hub.')
     spec = body.model_dump(exclude_none=True, exclude={'agent_id'})
     try:
         created = _scheduler(request).create(body.agent_id, spec)
@@ -94,7 +95,7 @@ async def update_schedule(request: Request, schedule_id: str) -> Any:
         return bad_request(f'{", ".join(nulls)} cannot be empty.')
     scheduler = _scheduler(request)
     try:
-        scheduler.owned(schedule_id, current_device(request).user_id)
+        scheduler.existing(schedule_id)
         return scheduler.update(schedule_id, changes)
     except ScheduleNotFound:
         return _not_found()
@@ -106,7 +107,7 @@ async def update_schedule(request: Request, schedule_id: str) -> Any:
 def delete_schedule(request: Request, schedule_id: str) -> Any:
     scheduler = _scheduler(request)
     try:
-        row = scheduler.owned(schedule_id, current_device(request).user_id)
+        row = scheduler.existing(schedule_id)
         scheduler.delete(row.agent_id, schedule_id)
     except ScheduleNotFound:
         return _not_found()

@@ -1,5 +1,6 @@
 import json
 import logging
+import platform
 from pathlib import Path
 
 import pytest
@@ -261,3 +262,25 @@ def test_without_a_public_url_the_hub_starts_and_says_so_once(
     with caplog.at_level(logging.WARNING), TestClient(create_app(settings)):
         pass
     assert caplog.text.count('No public address yet: run `marcel connect`.') == 1
+
+
+@pytest.mark.parametrize(('system', 'kind'), [('Darwin', 'macos'), ('Linux', 'linux')])
+def test_health_says_what_kind_of_computer_the_hub_runs_on(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, system: str, kind: str
+) -> None:
+    monkeypatch.setattr(platform, 'system', lambda: system)
+    with TestClient(create_app(settings)) as client:
+        body = client.get('/api/health').json()
+    health_schema().validate(body)
+    assert body['os'] == kind
+
+
+def test_health_leaves_os_out_on_another_system(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The contract names macos and linux only; the app then says "your computer".
+    monkeypatch.setattr(platform, 'system', lambda: 'Windows')
+    with TestClient(create_app(settings)) as client:
+        body = client.get('/api/health').json()
+    health_schema().validate(body)
+    assert 'os' not in body

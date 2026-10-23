@@ -57,11 +57,11 @@ EDITABLE = ('name', 'goal', 'repo', 'folder', 'instructions', 'claude_project_ur
 
 
 class ProjectNotFound(Exception):
-    """No such project, or not the caller's (404 `project_not_found`)."""
+    """No such project (404 `project_not_found`). Every project is the one person's."""
 
 
 class AgentNotFound(Exception):
-    """No such agent, or not the caller's (404 `agent_not_found`)."""
+    """No such agent (404 `agent_not_found`)."""
 
 
 class SlugTaken(Exception):
@@ -144,16 +144,12 @@ class ProjectStore:
 
     # Reading ---------------------------------------------------------------------------------
 
-    def get(self, project_id: str, user_id: str | None = None) -> Project:
-        """The project; with `user_id`, only if that user owns its agent."""
+    def get(self, project_id: str) -> Project:
+        """The project, of any buddy; else `ProjectNotFound`."""
         with Session(self.engine) as s:
             project = s.get(Project, project_id)
             if project is None:
                 raise ProjectNotFound(project_id)
-            if user_id is not None:
-                agent = s.get(Agent, project.agent_id)
-                if agent is None or agent.owner_user_id != user_id:
-                    raise ProjectNotFound(project_id)
             return project
 
     def inbox(self, agent_id: str) -> Project:
@@ -162,13 +158,11 @@ class ProjectStore:
             s.commit()
         return self.get(project_id)
 
-    def list_projects(
-        self, agent_id: str, user_id: str, archived: bool = False
-    ) -> list[dict[str, Any]]:
-        """The Map: most recent activity first, `inbox` last. Empty for someone else's agent."""
+    def list_projects(self, agent_id: str, archived: bool = False) -> list[dict[str, Any]]:
+        """The Map: most recent activity first, `inbox` last. Empty for an unknown agent."""
         with Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
-            if agent is None or agent.owner_user_id != user_id:
+            if agent is None:
                 return []
             rows = list(
                 s.exec(
@@ -238,13 +232,13 @@ class ProjectStore:
 
     # Changing --------------------------------------------------------------------------------
 
-    def create(self, user_id: str, agent_id: str, name: str, slug: str | None = None,
-               by: str = 'app', **fields: Any) -> Project:  # fmt: skip
+    def create(self, agent_id: str, name: str, slug: str | None = None, by: str = 'app',
+               **fields: Any) -> Project:  # fmt: skip
         """Make a project and its notes file. Without a slug, one is made from the name (with
         `-2`, `-3` … if that one is taken); a slug asked for and taken raises `SlugTaken`."""
         with self._lock, Session(self.engine) as s:
             agent = s.get(Agent, agent_id)
-            if agent is None or agent.owner_user_id != user_id:
+            if agent is None:
                 raise AgentNotFound(agent_id)
             inbox_id(s.connection(), agent_id)  # the inbox exists before any other project
             live = set(
@@ -325,8 +319,8 @@ class ProjectStore:
         log.info('Project %s has its tracker: %s', project.slug, url)
         self.publisher.publish('project.updated', self.to_api(project))
 
-    def update(self, project_id: str, user_id: str, changes: dict[str, Any]) -> Project:
-        project = self.get(project_id, user_id)
+    def update(self, project_id: str, changes: dict[str, Any]) -> Project:
+        project = self.get(project_id)
         with Session(self.engine) as s:
             for name, value in changes.items():
                 if name in EDITABLE:
@@ -338,8 +332,8 @@ class ProjectStore:
         self.announce(project.id)
         return project
 
-    def archive(self, project_id: str, user_id: str) -> Project:
-        project = self.get(project_id, user_id)
+    def archive(self, project_id: str) -> Project:
+        project = self.get(project_id)
         if project.slug == INBOX_SLUG:
             raise NotArchivable(
                 'project_is_inbox', 'The Inbox cannot be archived: unfiled threads land there.'
@@ -367,17 +361,16 @@ class ProjectStore:
         self.announce(project.id)
         return project
 
-    def move(self, task_id: str, project_id: str, user_id: str) -> Task:
+    def move(self, task_id: str, project_id: str) -> Task:
         """File a task under another project of the same agent (B-31). Its artifacts go with it,
         except those the owner pinned to a project of their own (`Artifact.pinned`).
         Sends `task.moved`, then `task.updated`, then `project.updated` for both projects, then
         `artifact.updated` for each of its unpinned items, now filed under the new project."""
         with Session(self.engine) as s:
             task = s.get(Task, task_id)
-            agent = s.get(Agent, task.agent_id) if task else None
-            if task is None or agent is None or agent.owner_user_id != user_id:
+            if task is None:
                 raise TaskNotFound(task_id)
-        target = self.get(project_id, user_id)
+        target = self.get(project_id)
         if target.agent_id != task.agent_id:
             raise ProjectNotFound(project_id)
         if target.archived:

@@ -158,24 +158,32 @@ def test_list_needs_an_agent_and_a_boolean(api: Api, agent: str) -> None:
 # ---- owner only ------------------------------------------------------------------------------
 
 
-def test_only_the_owner_sees_a_project(client: TestClient, api: Api, agent: str) -> None:
+def test_unknown_ids_are_not_found(client: TestClient, api: Api, agent: str) -> None:
     project = api.create(agent, 'Garden')
-    task_id = put_task(engine(client), TaskState.done, agent)
-    stranger = Api(client, add_phone(client, user_id='usr_stranger'))
-    assert stranger('GET', f'/projects?agent_id={agent}').json() == []
+    assert api('GET', '/projects?agent_id=agt_nope').json() == []
     for method, path, body in [
-        ('GET', f'/projects/{project["id"]}', None),
-        ('PATCH', f'/projects/{project["id"]}', {'name': 'Mine now'}),
-        ('POST', f'/projects/{project["id"]}/archive', None),
+        ('GET', '/projects/prj_nope', None),
+        ('PATCH', '/projects/prj_nope', {'name': 'Mine now'}),
+        ('POST', '/projects/prj_nope/archive', None),
     ]:
-        res = stranger(method, path, json=body)
+        res = api(method, path, json=body)
         assert res.status_code == 404, path
         assert res.json()['code'] == 'project_not_found'
-    res = stranger('POST', '/projects', json={'agent_id': agent, 'name': 'Sneaky'})
+    res = api('POST', '/projects', json={'agent_id': 'agt_nope', 'name': 'Sneaky'})
     assert (res.status_code, res.json()['code']) == (404, 'agent_not_found')
-    res = stranger('POST', f'/tasks/{task_id}/move', json={'project_id': project['id']})
+    res = api('POST', '/tasks/tsk_nope/move', json={'project_id': project['id']})
     assert (res.status_code, res.json()['code']) == (404, 'task_not_found')
-    assert api('GET', f'/projects/{project["id"]}').json()['name'] == 'Garden'
+
+
+def test_another_phone_sees_and_changes_every_buddys_projects(
+    client: TestClient, api: Api, agent: str
+) -> None:
+    # One person, many buddies (ADR-013): no phone is a stranger to a project.
+    project = api.create(agent, 'Garden')
+    other = Api(client, add_phone(client))
+    assert [p['id'] for p in other('GET', f'/projects?agent_id={agent}').json()][0] == project['id']
+    res = other('PATCH', f'/projects/{project["id"]}', json={'name': 'Allotment'})
+    assert res.status_code == 200 and res.json()['name'] == 'Allotment'
 
 
 # ---- changing and archiving ------------------------------------------------------------------

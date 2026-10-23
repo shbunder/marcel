@@ -1,6 +1,6 @@
 """Mentions (B-42, S-18.2): `@` a quest or an item, `#` a project, in the composer.
 
-- `GET /api/mentions?q=&kind=` lists the caller's own quests, projects and items whose title holds
+- `GET /api/mentions?q=&kind=` lists every buddy's quests, projects and items whose title holds
   `q` (any case), newest change first, at most 20. Archived quests and projects, and boards (a
   project's, not an item to mention), are left out.
 - `resolve(...)` checks a message's `mentions` before it is stored: each must be the agent's own
@@ -11,12 +11,12 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_
 from sqlmodel import Session, col, select
 
-from marcel_hub.auth import ApiError, current_device, require_device
+from marcel_hub.auth import ApiError, require_device
 from marcel_hub.auth.deps import DbSession
 from marcel_hub.models import Agent, Artifact, ArtifactKind, Project, Task
 
@@ -41,8 +41,9 @@ def _like(text: str) -> str:
     return f'%{escaped}%'
 
 
-def _agent_ids(session: Session, user_id: str) -> list[str]:
-    return list(session.exec(select(Agent.id).where(Agent.owner_user_id == user_id)))
+def _agent_ids(session: Session) -> list[str]:
+    """Every buddy: they are all the one person's (ADR-013)."""
+    return list(session.exec(select(Agent.id)))
 
 
 def _projects(session: Session, agent_ids: list[str]) -> dict[str, Project]:
@@ -53,8 +54,8 @@ def _projects(session: Session, agent_ids: list[str]) -> dict[str, Project]:
     return {p.id: p for p in rows}
 
 
-def search(session: Session, user_id: str, q: str, kind: str | None) -> list[dict[str, Any]]:
-    agent_ids = _agent_ids(session, user_id)
+def search(session: Session, q: str, kind: str | None) -> list[dict[str, Any]]:
+    agent_ids = _agent_ids(session)
     pattern = _like(q)
     found: list[tuple[datetime, dict[str, Any]]] = []
     if kind in (None, 'task'):
@@ -109,7 +110,7 @@ def _title(session: Session, mention: Mention, agent_id: str) -> str | None:
 
 
 def resolve(session: Session, mentions: list[Mention], agent_id: str) -> list[dict[str, Any]]:
-    """The mentions as stored: each the agent's own, with the hub's title. Another person's, or
+    """The mentions as stored: each the agent's own, with the hub's title. Another buddy's, or
     one that does not exist, refuses the whole message with 404 `mention_not_found`."""
     resolved = []
     for mention in mentions:
@@ -126,10 +127,9 @@ def resolve(session: Session, mentions: list[Mention], agent_id: str) -> list[di
 
 @router.get('/mentions')
 def search_mentions(
-    request: Request,
     session: DbSession,
     q: str = Query(default='', max_length=100),
     kind: Kind | None = None,
 ) -> list[dict[str, Any]]:
-    """The caller's own quests, projects and items to mention, newest first, at most 20."""
-    return search(session, current_device(request).user_id, q, kind)
+    """Every buddy's quests, projects and items to mention, newest first, at most 20."""
+    return search(session, q, kind)

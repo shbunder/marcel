@@ -20,17 +20,12 @@ from marcel_hub import db
 from marcel_hub.models import Agent, Artifact, ChannelCall, MessageKind, TaskState, inbox_id
 
 ARTIFACT = validator('app-api.yaml#/components/schemas/Artifact')
-STRANGER = 'usr_stranger'
 
 
 @pytest.fixture
 def hub(tmp_path: Path) -> Iterator[ChannelHub]:
     with channel_hub(tmp_path) as hub:
         yield hub
-
-
-def stranger(hub: ChannelHub) -> dict[str, str]:
-    return {'Authorization': f'Bearer {hub.phone(STRANGER)}'}
 
 
 def other_phone(hub: ChannelHub) -> dict[str, str]:
@@ -100,11 +95,10 @@ def test_a_message_is_read_by_id_with_its_thread(hub: ChannelHub) -> None:
     assert res.json()['thread'] == {'conversation_id': thread['id'], 'reply_count': 0}
 
 
-def test_another_persons_message_is_not_found(hub: ChannelHub) -> None:
+def test_a_message_is_read_by_any_phone_and_an_unknown_one_is_not_found(hub: ChannelHub) -> None:
     sent = hub.client.post(f'/api/conversations/{hub.main_id}/messages', json={'text': 'Mine'})
-    res = hub.client.get(f'/api/messages/{sent.json()["id"]}', headers=stranger(hub))
-    assert (res.status_code, res.json()['code']) == (404, 'message_not_found')
-    assert 'Mine' not in res.text
+    res = hub.client.get(f'/api/messages/{sent.json()["id"]}', headers=other_phone(hub))
+    assert res.status_code == 200 and res.json()['text'] == 'Mine'
     res = hub.client.get('/api/messages/msg_missing')
     assert (res.status_code, res.json()['code']) == (404, 'message_not_found')
 
@@ -328,7 +322,7 @@ def test_ask_about_this_in_a_task_thread_stores_the_item(hub: ChannelHub) -> Non
 
 
 def test_an_unknown_item_on_a_message_is_refused_and_nothing_is_stored(hub: ChannelHub) -> None:
-    theirs = other_agent(hub, STRANGER)
+    theirs = other_agent(hub, hub_owner(hub))  # another buddy's item, not this chat's
     with Session(hub.engine) as s:
         their_inbox = inbox_id(s.connection(), theirs)
         s.commit()

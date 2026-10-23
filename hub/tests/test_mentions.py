@@ -1,6 +1,7 @@
 """Mentions (S-18.2, B-42): the composer's search, the checks on a message's mentions, and the
-brain frame that carries them. Marcel's things come from `test_isolation.World`; Emma is a phone
-and a helper under another user id, which `mentions.py` still keeps apart."""
+brain frame that carries them. Marcel's things come from `test_isolation.World`; Eve is another
+buddy of the one person, and `emma` a phone that shows her. Search spans every buddy (ADR-013); a
+message's mentions must be its own buddy's."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,25 +18,23 @@ from marcel_hub.auth import tokens
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.models import Agent, Task, TaskLocation, TaskOrigin, TaskState, inbox_id
 
-EMMA = 'usr_emma'
-
 
 class World(Buddies):
-    """Marcel's world, and Emma: a phone and her helper Eve under another user id."""
+    """Marcel's world, and Eve: another buddy, with a phone (`emma`) that shows her."""
 
     def __init__(self, client: TestClient) -> None:
         super().__init__(client)
         self.owner, self.agent_id = self.marcels_phone, self.marcel
         self.conversation_id = self.marcel_main
         with Session(self.engine) as s:
-            eve = Agent(owner_user_id=EMMA, name='Eve', animal='cat', palette='marcel', seed='Eve',
-                        slug='eve')  # fmt: skip
+            eve = Agent(owner_user_id=tokens.OWNER_USER_ID, name='Eve', animal='cat',
+                        palette='marcel', seed='Eve', slug='eve')  # fmt: skip
             s.add(eve)
             s.commit()
             self.emma_main = ensure_main_conversation(s, eve).id
             self.emma_inbox = inbox_id(s.connection(), eve.id)
             s.commit()
-            code = tokens.create_pairing_code(s, user_id=EMMA)
+            code = tokens.create_pairing_code(s, agent_id=eve.id)
         paired = client.post('/api/pair', json={'code': code, 'device_name': 'Emma'}).json()
         self.emma = {'Authorization': f'Bearer {paired["token"]}'}
 
@@ -74,8 +73,8 @@ def test_search_finds_quests_projects_and_items_by_title_newest_first(world: Wor
     everything = mentions(world, world.owner)
     assert {m['kind'] for m in everything} == {'task', 'project', 'artifact'}
     assert not any(m['title'].endswith('board') for m in everything)  # boards are not items
-    newest = mentions(world, world.owner, kind='project')
-    assert newest[0]['id'] == world.project_id  # made after the inbox
+    newest = [m['id'] for m in mentions(world, world.owner, kind='project')]
+    assert newest[:2] == [world.emma_inbox, world.project_id]  # Eve's inbox was made last
 
 
 def test_search_is_at_most_twenty_and_treats_wildcards_as_text(world: World) -> None:
@@ -97,15 +96,13 @@ def test_search_is_at_most_twenty_and_treats_wildcards_as_text(world: World) -> 
     assert mentions(world, world.owner, q='_') == []
 
 
-def test_search_never_returns_another_persons_things(world: World) -> None:
-    assert all(
-        m['id'] not in (world.task_id, world.project_id, world.artifact_id)
-        for m in mentions(world, world.emma)
-    )
-    assert mentions(world, world.emma, q='heat') == []
-    assert mentions(world, world.emma, q='house', kind='project') == []
-    # Emma finds her own inbox.
-    assert [m['id'] for m in mentions(world, world.emma, kind='project')] == [world.emma_inbox]
+def test_search_spans_every_buddy_whichever_one_the_phone_shows(world: World) -> None:
+    # The contract: "of every buddy". A phone that shows Eve finds Marcel's things too.
+    assert [m['id'] for m in mentions(world, world.emma, q='heat')] == [world.task_id]
+    assert [m['id'] for m in mentions(world, world.emma, q='house', kind='project')] == [
+        world.project_id
+    ]
+    assert world.emma_inbox in [m['id'] for m in mentions(world, world.owner, kind='project')]
 
 
 def test_a_bad_search_is_a_400(world: World) -> None:
@@ -158,7 +155,9 @@ def test_a_project_mention_files_the_message_in_that_project(world: World) -> No
     assert res.json()['project_id'] == inbox
 
 
-def test_another_persons_mention_is_refused_and_nothing_is_stored(world: World) -> None:
+def test_another_buddys_mention_is_refused_and_nothing_is_stored(world: World) -> None:
+    # Control: delete the agent check in `mentions._title` and this goes red: a message mentions
+    # only its own buddy's things, so Eve's chat cannot carry Marcel's.
     emma_chat = emmas_conversation(world)
     before = world.call('GET', f'/api/conversations/{emma_chat}/messages', world.emma).json()
     for mention in (

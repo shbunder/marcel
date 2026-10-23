@@ -1,4 +1,9 @@
-"""The push side of the hub: turns events into pushes and gets them to every device (B-16, B-18).
+"""The push side of the hub: turns events into pushes and gets them to the phones (B-16, B-18).
+
+- **Which phones.** A buddy's push (its tasks, its approvals, its notices and digests) goes to the
+  phones showing that buddy (`Device.agent_id`, through `auth.routes.buddy_of`), so switching a
+  phone's buddy moves that buddy's next push to it (B-49). A push about no buddy (a redeploy, a
+  backup, usage, a logged-out Claude, a self-change, something broken) goes to every phone.
 
 - **Where events come from.** Task state changes arrive through `TaskPushes`, the task registry's
   publisher: every `state` task event is one push at most. The runner watcher raises and clears
@@ -27,6 +32,7 @@ from typing import Any
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, or_, select
 
+from marcel_hub.auth.routes import buddy_of
 from marcel_hub.auth.tokens import OWNER_USER_ID
 from marcel_hub.models import Agent, Approval, ApprovalState, Device, Task, TaskState
 from marcel_hub.notify import routing
@@ -125,7 +131,7 @@ class Pusher:
             else:
                 n = routing.for_state(task, state, reason, name)
             if n is not None:
-                self.push(n, agent.owner_user_id if agent else None)
+                self.push(n, agent.id if agent else None)
         except Exception:
             log.exception('Could not work out the push for task %s. Nothing was sent.', task_id)
 
@@ -141,9 +147,9 @@ class Pusher:
             n = routing.for_approval(task, approval, agent.name if agent else 'Marcel')
             from marcel_hub.channel.approvals import is_self_change  # channel/ builds on notify/
 
-            # A change to Marcel itself is the owner's to answer, whoever's helper opened it.
-            person = None if is_self_change(approval) else agent.owner_user_id if agent else None
-            self.push(n, person)
+            # A change to Marcel itself goes to every phone, whichever buddy opened it.
+            buddy = None if is_self_change(approval) else agent.id if agent else None
+            self.push(n, buddy)
         except Exception:
             log.exception('Could not push approval %s. Nothing was sent.', approval_id)
 
@@ -180,9 +186,11 @@ class Pusher:
         title: str,
         body: str,
         level: str = 'normal',
-        user_id: str | None = None,
+        everyone: bool = False,
     ) -> bool:
-        """Marcel's own notice, posted as message `message_id` (the brain's `notify` tool).
+        """Marcel's own notice, posted as message `message_id` (the brain's `notify` tool): to the
+        phones showing `agent_id`, or with `everyone` (a notice about Marcel itself, such as a
+        Claude Code update) to every phone.
 
         At most `NOTE_LIMIT` per agent per `NOTE_SECONDS`; False when this one was dropped.
         """
@@ -205,20 +213,21 @@ class Pusher:
             log.exception('Could not build the push for notice %s. Nothing was sent.', message_id)
             return False
         sent.append(now)
-        return self.push(n, user_id)
+        return self.push(n, None if everyone else agent_id)
 
-    def digest(self, message_id: str, title: str, body: str, user_id: str | None = None) -> None:
-        """A scheduled digest was posted as message `message_id`."""
+    def digest(self, message_id: str, title: str, body: str, agent_id: str | None = None) -> None:
+        """A scheduled digest of `agent_id` was posted as message `message_id`."""
         try:
-            self.push(routing.for_digest(message_id, title, body), user_id)
+            self.push(routing.for_digest(message_id, title, body), agent_id)
         except Exception:
             log.exception('Could not push the digest %s.', message_id)
 
     # Sending ----------------------------------------------------------------------------------
 
-    def push(self, n: PushNotification, user_id: str | None) -> bool:
-        """Send `n` in the background to `user_id`'s devices; when None (usage, a broken service,
-        a self-change), to the owner's devices only, never a family member's (B-38).
+    def push(self, n: PushNotification, buddy: str | None) -> bool:
+        """Send `n` in the background to the phones showing `buddy` (an agent id); when None (usage,
+        a broken service, a self-change), to every phone. The one person's id (`OWNER_USER_ID`,
+        as the watchdog names the owner) is every phone too: they are all that person's.
 
         False when it was held back as a repeat.
         """
@@ -240,13 +249,14 @@ class Pusher:
             self._last_task_push[n.task_id] = (signature, now)
             while len(self._last_task_push) > REMEMBER_TASKS:
                 del self._last_task_push[next(iter(self._last_task_push))]
-        self._spawn(self.deliver(n, user_id))
+        self._spawn(self.deliver(n, buddy))
         return True
 
-    async def deliver(self, n: PushNotification, user_id: str | None) -> None:
-        """Send `n` to every device that takes pushes. Logs failures; never raises."""
+    async def deliver(self, n: PushNotification, buddy: str | None) -> None:
+        """Send `n` to every phone that takes pushes and shows `buddy` (every phone when None).
+        Logs failures; never raises."""
         try:
-            devices = self._devices(user_id)
+            devices = self._devices(buddy)
             sends = []
             for device in devices:
                 kind = target_kind(device)
@@ -261,7 +271,7 @@ class Pusher:
                     continue
                 sends.append(self._send(notifier, device, n))
             if not sends:
-                log.info('No device takes pushes, so "%s" was not sent.', n.title)
+                log.info('No phone that takes pushes is to get "%s", so it was not sent.', n.title)
                 return
             results = await asyncio.gather(*sends)
             if not all(results) and n.level == 'urgent' and n.category != 'broke':
@@ -292,13 +302,17 @@ class Pusher:
             return True
         return False  # pragma: no cover - the loop always returns
 
-    def _devices(self, user_id: str | None) -> list[Device]:
+    def _devices(self, buddy: str | None) -> list[Device]:
+        """The phones that take pushes; with a buddy, those showing it, and any phone that shows
+        no buddy at all (none is live yet), so it misses nothing."""
         query = select(Device).where(
             or_(col(Device.apns_token).is_not(None), col(Device.ntfy_topic).is_not(None))
         )
-        query = query.where(Device.user_id == (user_id or OWNER_USER_ID))
         with Session(self.engine) as s:
-            return list(s.exec(query.order_by(col(Device.id))))
+            devices = list(s.exec(query.order_by(col(Device.id))))
+            if buddy is None or buddy == OWNER_USER_ID:
+                return devices
+            return [d for d in devices if buddy_of(s, d) in (buddy, None)]
 
     # Background jobs --------------------------------------------------------------------------
 

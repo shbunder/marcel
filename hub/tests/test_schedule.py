@@ -63,8 +63,8 @@ class Pushes:
     def __init__(self) -> None:
         self.sent: list[tuple[PushNotification, str | None]] = []
 
-    def push(self, n: PushNotification, user_id: str | None) -> bool:
-        self.sent.append((n, user_id))
+    def push(self, n: PushNotification, buddy: str | None) -> bool:
+        self.sent.append((n, buddy))
         return True
 
 
@@ -313,9 +313,9 @@ def test_missed_fires_are_not_made_up_and_are_reported_once(
     (text,) = said(engine)
     assert text.startswith('Marcel was off when 2 scheduled jobs were due')
     assert '“Garden check” (3 times)' in text and '“Weekly report”' in text
-    ((push, user),) = pushes.sent
+    ((push, buddy),) = pushes.sent
     assert push.category == 'note' and push.deep_link.startswith('marcel://message/')
-    assert user == 'usr_1'
+    assert buddy == 'agt_marcel', "to the phones showing the schedule's buddy"
     assert next_run(engine, daily['id']) == datetime(2026, 10, 15, 6, 0, tzinfo=UTC)
 
     run(sched.tick())

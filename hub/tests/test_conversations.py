@@ -168,10 +168,16 @@ def test_list_conversations_main_first_then_side_threads_newest_first(
     assert body[1]['reply_count'] == 0 and 'last_message_at' not in body[1]
 
 
-def test_another_users_agent_lists_no_conversations(client: TestClient, phone: Phone) -> None:
-    other_agent, _ = add_agent(client, user_id='usr_other')
-    res = client.get('/api/conversations', params={'agent_id': other_agent}, headers=phone.headers)
+def test_an_unknown_agent_lists_no_conversations(client: TestClient, phone: Phone) -> None:
+    res = client.get('/api/conversations', params={'agent_id': 'agt_nope'}, headers=phone.headers)
     assert res.json() == []
+
+
+def test_every_buddys_conversations_are_listed(client: TestClient, phone: Phone) -> None:
+    # One person, many buddies (ADR-013): a phone sees every buddy's chats, not only its own.
+    pip, pips_main = add_agent(client)
+    res = client.get('/api/conversations', params={'agent_id': pip}, headers=phone.headers)
+    assert [c['id'] for c in res.json()] == [pips_main]
 
 
 # ---- sending ----------------------------------------------------------------------------------
@@ -270,13 +276,11 @@ def test_a_bad_message_is_a_400(
     assert res.json()['code'] == 'bad_request'
 
 
-def test_another_users_conversation_is_not_found(client: TestClient, phone: Phone) -> None:
-    _, theirs = add_agent(client, user_id='usr_other')
+def test_an_unknown_conversation_is_not_found(client: TestClient, phone: Phone) -> None:
     for res in (
         client.post(
-            f'/api/conversations/{theirs}/messages', json={'text': 'hi'}, headers=phone.headers
+            '/api/conversations/cnv_nope/messages', json={'text': 'hi'}, headers=phone.headers
         ),
-        client.get(f'/api/conversations/{theirs}/messages', headers=phone.headers),
         client.get('/api/conversations/cnv_nope/messages', headers=phone.headers),
     ):
         assert res.status_code == 404
@@ -421,15 +425,17 @@ def test_a_thread_on_a_plain_agent_message_has_no_task(
     assert side['title'] == 'Here is a long answer.'
 
 
-def test_a_thread_on_a_missing_or_foreign_message_is_not_found(
-    client: TestClient, phone: Phone
-) -> None:
-    _, theirs = add_agent(client, user_id='usr_other')
-    their_msg = add_message(client, theirs, text='private')
-    for msg_id in ('msg_nope', their_msg):
-        res = client.post(f'/api/messages/{msg_id}/thread', headers=phone.headers)
-        assert res.status_code == 404
-        assert res.json()['code'] == 'message_not_found'
+def test_a_thread_on_a_missing_message_is_not_found(client: TestClient, phone: Phone) -> None:
+    res = client.post('/api/messages/msg_nope/thread', headers=phone.headers)
+    assert res.status_code == 404
+    assert res.json()['code'] == 'message_not_found'
+
+
+def test_a_thread_opens_on_another_buddys_message(client: TestClient, phone: Phone) -> None:
+    _, pips_main = add_agent(client)
+    pips_msg = add_message(client, pips_main, text='The garden needs water.')
+    res = client.post(f'/api/messages/{pips_msg}/thread', headers=phone.headers)
+    assert res.status_code in (200, 201), res.text
 
 
 # ---- send to main -----------------------------------------------------------------------------

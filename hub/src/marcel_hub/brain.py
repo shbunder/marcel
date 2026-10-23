@@ -59,7 +59,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlmodel import Session, col, select
 
-from marcel_hub.auth import ApiError, current_device, require_device
+from marcel_hub.auth import ApiError, require_device
 from marcel_hub.auth.deps import DbSession
 from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.day_summary import message_line
@@ -974,9 +974,10 @@ def _kept(notes: bool, messages: int, tasks: int) -> str:
 router = APIRouter(prefix='/api', tags=['agents'], dependencies=[Depends(require_device)])
 
 
-def _owned(session: Session, request: Request, agent_id: str) -> Agent:
+def _owned(session: Session, agent_id: str) -> Agent:
+    """The buddy `agent_id` (every buddy is the one person's), or 404 `agent_not_found`."""
     agent = session.get(Agent, agent_id)
-    if agent is None or agent.owner_user_id != current_device(request).user_id:
+    if agent is None:
         raise ApiError(404, 'agent_not_found', 'That agent is not on this hub.')
     return agent
 
@@ -995,7 +996,7 @@ def rollover_json(row: BrainRollover) -> dict[str, Any]:
 
 @router.post('/agents/{agent_id}/brain/rollover', status_code=202)
 async def roll_over_brain(agent_id: str, request: Request, session: DbSession) -> Response:
-    agent = _owned(session, request, agent_id)
+    agent = _owned(session, agent_id)
     keeper: BrainKeeper | None = request.app.state.brain
     if keeper is None or keeper.runner is None:
         raise ApiError(
@@ -1031,7 +1032,7 @@ def list_brain_rollovers(
     session: DbSession,
     limit: int = Query(default=10, ge=1, le=MAX_ROLLOVERS),
 ) -> list[dict[str, Any]]:
-    _owned(session, request, agent_id)
+    _owned(session, agent_id)
     rows = session.exec(
         select(BrainRollover)
         .where(BrainRollover.agent_id == agent_id)

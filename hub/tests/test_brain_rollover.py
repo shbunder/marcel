@@ -394,7 +394,7 @@ def test_a_manual_rollover_is_202_then_409_while_it_runs(hub: ChannelHub, fake: 
     assert hub.client.post(url).status_code == 202, 'a new one once that is done'
 
 
-def test_a_manual_rollover_needs_a_runner_and_an_agent_of_yours(
+def test_a_manual_rollover_needs_a_runner_and_a_known_agent(
     hub: ChannelHub, fake: FakeBrains
 ) -> None:
     wait(lambda: current_in(hub))
@@ -407,12 +407,6 @@ def test_a_manual_rollover_needs_a_runner_and_an_agent_of_yours(
         method = hub.client.post if path == 'rollover' else hub.client.get
         res = method(f'/api/agents/agt_nobody/brain/{path}')
         assert res.status_code == 404 and res.json()['code'] == 'agent_not_found'
-        other = hub.phone('usr_someone_else')
-        res = method(
-            f'/api/agents/{hub.agent_id}/brain/{path}',
-            headers={'Authorization': f'Bearer {other}'},
-        )
-        assert res.status_code == 404
 
 
 def test_without_a_brain_workspace_a_manual_rollover_is_503(tmp_path: Path) -> None:
