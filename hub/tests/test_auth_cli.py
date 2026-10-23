@@ -6,9 +6,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from marcel_hub.app import Settings, create_app, main
 from marcel_hub.auth import cli
+from marcel_hub.auth.tokens import OWNER_USER_ID
+from marcel_hub.conversations import ensure_main_conversation
+from marcel_hub.models import Agent
+from marcel_hub.users.store import ensure_owner_agent
 
 
 @pytest.fixture
@@ -84,3 +89,42 @@ def test_pair_takes_another_address_when_asked(
 ) -> None:
     _, url = run_pair(['--hub', 'https://other.example.org/api'], capsys)
     assert parse_qs(urlparse(url).query)['hub'] == ['https://other.example.org/api']
+
+
+def add_buddies(env: Path) -> tuple[str, str]:
+    """Marcel (slug `marcel`) and Pip (slug `pip`), as `setup` and `POST /agents` make them."""
+    settings = Settings(data_dir=env, db_path=env / 'marcel.db')
+    app = create_app(settings)
+    with TestClient(app), Session(app.state.engine) as s:
+        marcel, _ = ensure_owner_agent(s, 'Marcel')
+        pip = Agent(owner_user_id=OWNER_USER_ID, name='Pip', animal='fox', palette='marcel',
+                    seed='Pip', slug='pip')  # fmt: skip
+        s.add(pip)
+        s.commit()
+        ensure_main_conversation(s, pip)
+        return marcel.id, pip.id
+
+
+def test_pair_with_a_buddy_pairs_a_phone_showing_it(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, pip = add_buddies(env)
+    _, url = run_pair(['--buddy', 'pip'], capsys)
+    query = parse_qs(urlparse(url).query)
+    assert query['buddy'] == [pip]
+    settings = Settings(data_dir=env, db_path=env / 'marcel.db')
+    with TestClient(create_app(settings)) as client:
+        paired = client.post('/api/pair', json={'code': query['code'][0], 'device_name': 'iPad'})
+        devices = client.get(
+            '/api/devices', headers={'Authorization': f'Bearer {paired.json()["token"]}'}
+        ).json()
+    assert [d['agent_id'] for d in devices] == [pip]
+
+
+def test_pair_with_an_unknown_buddy_makes_no_code(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    add_buddies(env)
+    with pytest.raises(SystemExit, match=r'No pairing code.*no buddy "zed".*marcel, pip'):
+        cli.pair(['--buddy', 'zed'])
+    assert 'marcel://pair' not in capsys.readouterr().out

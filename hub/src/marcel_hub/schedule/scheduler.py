@@ -90,7 +90,7 @@ class Frames(Protocol):
 
 
 class Pushes(Protocol):
-    def push(self, n: PushNotification, user_id: str | None) -> bool: ...
+    def push(self, n: PushNotification, buddy: str | None) -> bool: ...
 
 
 @dataclass
@@ -196,12 +196,11 @@ class Scheduler:
         log.info('Schedule %s "%s" created: %s in %s.', row.id, row.name, row.cron, row.tz)
         return self.to_api(row)
 
-    def owned(self, schedule_id: str, user_id: str) -> Schedule:
-        """The schedule if its agent belongs to `user_id`; else `ScheduleNotFound`."""
+    def existing(self, schedule_id: str) -> Schedule:
+        """The schedule, of any buddy of the one person; else `ScheduleNotFound`."""
         with Session(self.engine) as s:
             row = s.get(Schedule, schedule_id)
-            agent = s.get(Agent, row.agent_id) if row else None
-        if row is None or agent is None or agent.owner_user_id != user_id:
+        if row is None:
             raise ScheduleNotFound(schedule_id)
         return row
 
@@ -471,7 +470,7 @@ class Scheduler:
                     kind=MessageKind.text,
                     body={'text': text},
                 )
-                message_id, user_id = message.id, agent.owner_user_id
+                message_id = message.id
         except Exception:
             log.exception('Could not post "%s" in the conversation.', title)
             return
@@ -487,7 +486,7 @@ class Scheduler:
                     deep_link=message_link(message_id),
                     collapse_key=key,
                 ),
-                user_id,
+                agent_id,  # to the phones showing this buddy
             )
         except Exception:
             log.exception('Could not push "%s".', title)

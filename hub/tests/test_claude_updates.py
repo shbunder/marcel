@@ -54,13 +54,15 @@ class Pushes:
     def __init__(self) -> None:
         self.sent: list[tuple[str, ...]] = []  # notes
         self.levels: list[str] = []
+        self.everyone: list[bool] = []  # to every phone: a notice about Claude Code, no buddy's
         self.urgent: list[tuple[str, ...]] = []  # broke
         self.cleared: list[str] = []
 
     def note(self, agent_id: str, message_id: str, title: str, body: str, level: str,
-             user_id: str | None) -> bool:  # fmt: skip
+             everyone: bool = False) -> bool:  # fmt: skip
         self.sent.append((agent_id, body))
         self.levels.append(level)
+        self.everyone.append(everyone)
         return True
 
     def broke(self, cause: str, title: str, body: str, task_id: str | None = None) -> None:
@@ -297,6 +299,7 @@ def test_a_lost_login_is_told_once_and_urgently(
         look(w)
     assert notices(hub) == [LOGGED_OUT]
     assert pushes.sent == [(hub.agent_id, LOGGED_OUT)] and pushes.levels == ['urgent']
+    assert pushes.everyone == [True], 'a logged-out Claude is news for every phone'
 
 
 def test_a_lost_login_is_read_even_when_claude_cannot_say_its_version(

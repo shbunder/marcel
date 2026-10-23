@@ -106,8 +106,8 @@ class Pushes:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, str, str | None]] = []
 
-    def digest(self, message_id: str, title: str, body: str, user_id: str | None = None) -> None:
-        self.sent.append((message_id, title, body, user_id))
+    def digest(self, message_id: str, title: str, body: str, agent_id: str | None = None) -> None:
+        self.sent.append((message_id, title, body, agent_id))
 
 
 @pytest.fixture
@@ -539,9 +539,13 @@ def test_a_published_digest_becomes_the_board_with_a_card_and_a_push(
     assert (card.kind, card.role, card.artifact_id) == (MessageKind.artifact, MessageRole.agent,
                                                         board)  # fmt: skip
     assert card.project_id is not None
-    ((message_id, title, body, user),) = pushes.sent
-    assert (message_id, title, body, user) == (card.id, 'Evening digest', '2 things wait for you.',
-                                               'usr_1')  # fmt: skip
+    ((message_id, title, body, buddy),) = pushes.sent
+    assert (message_id, title, body, buddy) == (
+        card.id,
+        'Evening digest',
+        '2 things wait for you.',
+        AGENT,
+    )  # fmt: skip  (to its buddy's phones)
 
     # The next digest names the board, so the brain adds a version; a new doc does not replace it.
     clock.now = EVENING + timedelta(days=1)  # the evening digest's next time

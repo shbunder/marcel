@@ -1,8 +1,9 @@
 """Pairing a phone and the device-token check (B-27)."""
 
+import dataclasses
 import hashlib
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,12 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from sqlmodel import Session, select
 from test_contract import RETIRED_FIELDS, served_contract
+from test_tasks_fakes import validator
 
 from marcel_hub.app import Settings, create_app
 from marcel_hub.auth import current_device, tokens
-from marcel_hub.models import Agent, Device, PairingCode, utcnow
+from marcel_hub.conversations import ensure_main_conversation
+from marcel_hub.models import Agent, AppEvent, Device, PairingCode, utcnow
 from marcel_hub.users.store import ensure_owner_agent
 
 CONTRACT = Path(__file__).resolve().parents[2] / 'contracts' / 'app-api.yaml'
@@ -25,6 +28,10 @@ REGISTRY = Registry().with_resource(
     'urn:contract',
     Resource.from_contents(SPEC | {'$schema': 'https://json-schema.org/draft/2020-12/schema'}),
 )
+
+
+APP_EVENT = validator('events.schema.json')
+PUBLIC_URL = 'https://marcel.example.ts.net'
 
 
 def validate(schema: str, body: Any) -> None:
@@ -42,7 +49,8 @@ def validate_list(schema: str, body: Any) -> None:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun')
+    return Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db', owner_name='Shaun',
+                    public_url=PUBLIC_URL)  # fmt: skip
 
 
 @pytest.fixture
@@ -241,17 +249,14 @@ def test_revoking_an_unknown_device_is_404(client: TestClient) -> None:
     validate('Error', res.json())
 
 
-def test_another_users_device_cannot_be_seen_or_revoked(client: TestClient) -> None:
-    me = pair(client)
-    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
-        other = Device(user_id='usr_other', name='theirs', token_hash='x' * 64)
-        s.add(other)
-        s.commit()
-        other_id = other.id
+def test_every_phone_sees_and_may_revoke_every_phone(client: TestClient) -> None:
+    # One person, many phones (ADR-013): no phone is another's stranger.
+    me, other = pair(client, 'mine'), pair(client, 'the iPad')
     devices = client.get('/api/devices', headers=bearer(me['token'])).json()
-    assert other_id not in [d['id'] for d in devices]
-    res = client.delete(f'/api/devices/{other_id}', headers=bearer(me['token']))
-    assert res.status_code == 404
+    assert {d['id'] for d in devices} == {me['device_id'], other['device_id']}
+    res = client.delete(f'/api/devices/{other["device_id"]}', headers=bearer(me['token']))
+    assert res.status_code == 204
+    assert client.get('/api/me', headers=bearer(other['token'])).status_code == 401
 
 
 # --- GET /me, /devices, PUT /devices/{id}/push ------------------------------------------------
@@ -472,3 +477,171 @@ def test_an_apns_token_that_is_not_hex_of_a_sane_length_is_400(
     with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
         device = s.get(Device, me['device_id'])
         assert device is not None and device.apns_token is None
+
+
+# --- PATCH /devices/{id}, POST /pairing-codes (S-22.27, B-49) --------------------------------
+
+
+def second_buddy(client: TestClient, name: str = 'Pip', archived: bool = False) -> str:
+    """Another buddy with its main conversation (archived when asked)."""
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        agent = Agent(owner_user_id=tokens.OWNER_USER_ID, name=name, animal='fox',
+                      palette='marcel', seed=name, slug=name.lower(),
+                      archived_at=utcnow() if archived else None)  # fmt: skip
+        s.add(agent)
+        s.commit()
+        ensure_main_conversation(s, agent)
+        return agent.id
+
+
+def device_events(client: TestClient) -> list[dict[str, Any]]:
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        rows = s.exec(select(AppEvent).where(AppEvent.type == 'device.updated')).all()
+        frames = [{'id': e.id, 'type': e.type, 'at': e.at.isoformat(), 'data': e.data_json}
+                  for e in rows]  # fmt: skip
+    for frame in frames:
+        APP_EVENT.validate(frame)
+    return [f['data'] for f in frames]
+
+
+def test_a_phone_switches_buddy_and_every_phone_hears_of_it(client: TestClient, buddy: str) -> None:
+    pip = second_buddy(client)
+    me, ipad = pair(client, 'mine'), pair(client, 'the iPad')
+    # Any phone may change any phone's buddy: this one changes the iPad's.
+    res = client.patch(
+        f'/api/devices/{ipad["device_id"]}', json={'agent_id': pip}, headers=bearer(me['token'])
+    )
+    assert res.status_code == 200, res.text
+    validate('Device', res.json())
+    assert (res.json()['agent_id'], res.json()['current']) == (pip, False)
+    [event] = device_events(client)  # validated against events.schema.json
+    assert (event['id'], event['agent_id']) == (ipad['device_id'], pip)
+    assert 'current' not in event, 'an event is read by every phone'
+    devices = client.get('/api/devices', headers=bearer(me['token'])).json()
+    assert {d['id']: d['agent_id'] for d in devices} == {
+        me['device_id']: buddy,
+        ipad['device_id']: pip,
+    }
+    # The same buddy again changes nothing and sends nothing.
+    client.patch(f'/api/devices/{ipad["device_id"]}', json={'agent_id': pip},
+                 headers=bearer(me['token']))  # fmt: skip
+    assert len(device_events(client)) == 1
+
+
+def test_switching_to_no_buddy_or_an_archived_one_is_404_and_changes_nothing(
+    client: TestClient, buddy: str
+) -> None:
+    # Control: delete `find_live_buddy` in `update_device` and this goes red.
+    gone = second_buddy(client, 'Old', archived=True)
+    me = pair(client)
+    url = f'/api/devices/{me["device_id"]}'
+    for agent_id in ('agt_nope', gone):
+        res = client.patch(url, json={'agent_id': agent_id}, headers=bearer(me['token']))
+        assert res.status_code == 404 and res.json()['code'] == 'agent_not_found', agent_id
+        validate('Error', res.json())
+    res = client.patch('/api/devices/dev_nope', json={'agent_id': buddy},
+                       headers=bearer(me['token']))  # fmt: skip
+    assert res.status_code == 404 and res.json()['code'] == 'device_not_found'
+    for body in ({}, {'agent_id': ''}, {'agent_id': buddy, 'name': 'x'}):
+        assert client.patch(url, json=body, headers=bearer(me['token'])).status_code == 400
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, me['device_id'])
+        assert device is not None and device.agent_id == buddy
+    assert device_events(client) == []
+
+
+def test_a_pairing_code_with_a_buddy_pairs_a_phone_showing_it(
+    client: TestClient, buddy: str
+) -> None:
+    pip = second_buddy(client)
+    me = pair(client)
+    res = client.post('/api/pairing-codes', json={'agent_id': pip}, headers=bearer(me['token']))
+    assert res.status_code == 201, res.text
+    body = res.json()
+    validate('IssuedPairingCode', body)
+    assert body['link'].endswith(f'&code={body["code"]}&buddy={pip}')
+    expires = datetime.fromisoformat(body['expires_at'])
+    assert timedelta(minutes=9) < expires - datetime.now(UTC) <= timedelta(minutes=10)
+    new = client.post('/api/pair', json={'code': body['code'], 'device_name': 'iPad'})
+    assert new.status_code == 201
+    devices = client.get('/api/devices', headers=bearer(me['token'])).json()
+    assert {d['id']: d['agent_id'] for d in devices}[new.json()['device_id']] == pip
+
+
+def test_a_pairing_code_without_a_buddy_pairs_a_phone_on_the_first(
+    client: TestClient, buddy: str
+) -> None:
+    second_buddy(client)
+    me = pair(client)
+    res = client.post('/api/pairing-codes', headers=bearer(me['token']))
+    assert res.status_code == 201
+    validate('IssuedPairingCode', res.json())
+    assert 'buddy=' not in res.json()['link']
+    assert res.json()['link'].startswith(
+        'marcel://pair?hub=https%3A%2F%2Fmarcel.example.ts.net%2Fapi&code='
+    )
+    new = client.post('/api/pair', json={'code': res.json()['code'], 'device_name': 'iPad'})
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, new.json()['device_id'])
+        assert device is not None and device.agent_id == buddy
+
+
+def test_a_pairing_code_for_no_buddy_or_an_archived_one_is_404(
+    client: TestClient, buddy: str
+) -> None:
+    # Control: delete the `find_live_buddy` check in `new_pairing_code` and this goes red.
+    gone = second_buddy(client, 'Old', archived=True)
+    me = pair(client)
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        before = len(s.exec(select(PairingCode)).all())
+    for agent_id in ('agt_nope', gone):
+        res = client.post('/api/pairing-codes', json={'agent_id': agent_id},
+                          headers=bearer(me['token']))  # fmt: skip
+        assert res.status_code == 404 and res.json()['code'] == 'agent_not_found'
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        assert len(s.exec(select(PairingCode)).all()) == before, 'no code was made'
+
+
+def test_a_code_whose_buddy_was_archived_since_pairs_on_the_first(
+    client: TestClient, buddy: str
+) -> None:
+    pip = second_buddy(client)
+    code = new_code(client, agent_id=pip)
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        agent = s.get(Agent, pip)
+        assert agent is not None
+        agent.archived_at = utcnow()
+        s.add(agent)
+        s.commit()
+    new = client.post('/api/pair', json={'code': code, 'device_name': 'iPad'}).json()
+    with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+        device = s.get(Device, new['device_id'])
+        assert device is not None and device.agent_id == buddy
+
+
+def test_without_a_public_address_no_pairing_code_is_made(settings: Settings) -> None:
+    # Control: delete the `public_url` check in `new_pairing_code` and this goes red. Without it
+    # the link would name the address the phone used, maybe plain http, where the code and the
+    # new phone's token can be read on the Wi-Fi. `marcel-hub pair` refuses the same way.
+    settings = dataclasses.replace(settings, public_url=None)
+    with TestClient(create_app(settings)) as client:
+        me = pair(client)
+        res = client.post('/api/pairing-codes', headers=bearer(me['token']))
+        assert res.status_code == 400 and 'marcel connect' in res.json()['message']
+        validate('Error', res.json())
+        with Session(client.app.state.engine) as s:  # type: ignore[attr-defined]
+            assert len(s.exec(select(PairingCode)).all()) == 1, 'only the first phone code, used'
+
+
+def test_every_phone_hears_when_a_new_phone_is_paired(client: TestClient) -> None:
+    # Control: delete `_tell_every_phone_of` in `pair` and this goes red. Any phone can pair
+    # another, so a lost phone pairing a stranger's must not go unseen.
+    pushed: list[tuple[Any, str | None]] = []
+    client.app.state.pusher.push = lambda n, buddy: pushed.append((n, buddy)) or True  # type: ignore[attr-defined]
+    ipad = pair(client, 'Stranger iPad')
+    [(n, buddy)] = pushed
+    assert buddy is None, 'to every phone'
+    assert n.title == 'A new phone was paired' and 'Stranger iPad' in n.body
+    assert n.deep_link == 'marcel://status' and n.collapse_key == f'paired-{ipad["device_id"]}'
+    client.post('/api/pair', json={'code': 'WRONGCOD', 'device_name': 'x'})
+    assert len(pushed) == 1, 'a refused code tells no one'

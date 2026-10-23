@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func
 from sqlmodel import Session, col, select
 
-from marcel_hub.auth import ApiError, current_device, require_device
+from marcel_hub.auth import ApiError, require_device
 from marcel_hub.auth.deps import DbSession
 from marcel_hub.mentions import Mention, resolve
 from marcel_hub.models import (
@@ -23,7 +23,6 @@ from marcel_hub.models import (
     Artifact,
     Conversation,
     ConversationKind,
-    Device,
     Message,
     MessageKind,
     MessageRole,
@@ -237,17 +236,19 @@ def not_found(what: str) -> ApiError:
     return ApiError(404, f'{what}_not_found', f'That {what} is not on this hub.')
 
 
-def own_conversation(session: Session, conversation_id: str, me: Device) -> Conversation:
+def own_conversation(session: Session, conversation_id: str) -> Conversation:
+    """The conversation, of any buddy of the one person; else 404 `conversation_not_found`."""
     conv = session.get(Conversation, conversation_id)
-    if conv is None or owner_of(session, conv) != me.user_id:
+    if conv is None:
         raise not_found('conversation')
     return conv
 
 
-def own_message(session: Session, message_id: str, me: Device) -> tuple[Message, Conversation]:
+def own_message(session: Session, message_id: str) -> tuple[Message, Conversation]:
+    """The message and its conversation; else 404 `message_not_found`."""
     msg = session.get(Message, message_id)
     conv = session.get(Conversation, msg.conversation_id) if msg else None
-    if msg is None or conv is None or owner_of(session, conv) != me.user_id:
+    if msg is None or conv is None:
         raise not_found('message')
     return msg, conv
 
@@ -278,10 +279,9 @@ def events_of(request: Request) -> EventLog:
 
 
 @router.get('/conversations')
-def list_conversations(agent_id: str, request: Request, session: DbSession) -> list[dict]:
-    me = current_device(request)
+def list_conversations(agent_id: str, session: DbSession) -> list[dict]:
     agent = session.get(Agent, agent_id)
-    if agent is None or agent.owner_user_id != me.user_id:
+    if agent is None:
         return []
     convs = session.exec(select(Conversation).where(Conversation.agent_id == agent.id)).all()
     main = [c for c in convs if c.kind == ConversationKind.main]
@@ -302,7 +302,7 @@ def list_messages(
     cursor: str | None = None,
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
-    conv = own_conversation(session, conversation_id, current_device(request))
+    conv = own_conversation(session, conversation_id)
     query = select(Message).where(Message.conversation_id == conv.id)
     if cursor is not None:
         after = session.get(Message, cursor.removeprefix(CURSOR_PREFIX))
@@ -342,7 +342,7 @@ async def send_message(
     the agent's own, or nothing is stored (404 `mention_not_found`); a `#project` mention files
     the message in that project when it has no `project_id`. In a task's own thread the
     message steers that task instead (`task_threads`, S-04.9)."""
-    conv = own_conversation(session, conversation_id, current_device(request))
+    conv = own_conversation(session, conversation_id)
     mentions = resolve(session, body.mentions, conv.agent_id)
     if body.project_id is None:
         body.project_id = next((m['id'] for m in mentions if m['kind'] == 'project'), None)
@@ -388,16 +388,16 @@ def thread_title(msg: Message) -> str | None:
 
 @router.get('/messages/{message_id}')
 def get_message(message_id: str, request: Request, session: DbSession) -> dict[str, Any]:
-    """One message by id, for a `marcel://message/<id>` deep link. Someone else's message
-    answers 404 `message_not_found`, as one that does not exist."""
-    msg, _ = own_message(session, message_id, current_device(request))
+    """One message by id, for a `marcel://message/<id>` deep link; 404 `message_not_found` for
+    one that does not exist."""
+    msg, _ = own_message(session, message_id)
     return message_json(msg, threads_of(session, [msg.id]).get(msg.id))
 
 
 @router.post('/messages/{message_id}/thread')
 def open_thread(message_id: str, request: Request, session: DbSession) -> JSONResponse:
     """Open the side thread on a message, or return the one it already has (B-08)."""
-    msg, parent = own_message(session, message_id, current_device(request))
+    msg, parent = own_message(session, message_id)
     events = events_of(request)
     with events.lock:
         existing = session.exec(
@@ -424,7 +424,7 @@ def open_thread(message_id: str, request: Request, session: DbSession) -> JSONRe
 def send_to_main(
     conversation_id: str, body: SendToMain, request: Request, session: DbSession
 ) -> dict[str, Any]:
-    side = own_conversation(session, conversation_id, current_device(request))
+    side = own_conversation(session, conversation_id)
     if side.kind == ConversationKind.main:
         raise ApiError(400, 'already_main', 'This is already the main conversation.')
     agent = session.get(Agent, side.agent_id)

@@ -352,13 +352,14 @@ def test_a_notice_that_cannot_be_built_is_logged_not_raised(
 # Who receives what -----------------------------------------------------------------------------
 
 
-def test_task_pushes_go_to_the_owners_devices_only(engine: Engine, task: str) -> None:
-    add_device(engine, 'dev_stranger', user_id='usr_2', ntfy_topic='stranger')
+def test_task_pushes_go_only_to_phones_that_take_pushes(engine: Engine, task: str) -> None:
+    # Which buddy a phone shows is test_notify_routing.py's (S-22.27); here: no target, no push.
+    add_device(engine, 'dev_ipad', ntfy_topic='ipad')
     add_device(engine, 'dev_nothing', ntfy_topic=None)
     notifier = RecordingNotifier()
     pusher = pusher_for(engine, notifier)
     drive(pusher, lambda: pusher.on_state(task, 'done'))
-    assert [d for d, _ in notifier.sent] == ['dev_phone']
+    assert [d for d, _ in notifier.sent] == ['dev_ipad', 'dev_phone']
 
 
 class Apns(RecordingNotifier):
@@ -389,7 +390,7 @@ def test_no_device_means_nothing_sent(engine: Engine, caplog: pytest.LogCaptureF
     pusher = pusher_for(engine, RecordingNotifier())
     task = put_task(engine, TaskState.done)
     drive(pusher, lambda: pusher.on_state(task, 'done'))
-    assert 'No device takes pushes' in caplog.text
+    assert 'No phone that takes pushes is to get' in caplog.text
 
 
 # Never raising ---------------------------------------------------------------------------------

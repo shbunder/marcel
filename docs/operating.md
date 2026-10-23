@@ -140,6 +140,20 @@ docker exec -it marcel-hub marcel-hub pair
 ```
 
 It prints a QR code and an 8-character code that work once, for 10 minutes. Scan it with the app.
+The new phone shows the first buddy. To start it on another, name that buddy's slug (its folder in
+`~/marcel/brains/<slug>`, or its id): `marcel-hub pair --buddy pip`. An unknown name makes no code
+and lists the buddies there are.
+
+A paired phone can make a code too (`POST /api/pairing-codes`, optionally with the buddy), add a buddy
+(`POST /api/agents`), archive one (`POST /api/agents/{id}/archive`; never the last one) and choose
+which buddy any phone shows (`PATCH /api/devices/{id}`). Like `pair`, `POST /api/pairing-codes`
+makes no code until `MARCEL_PUBLIC_URL` is set, so a phone never pairs over plain http. Every phone
+gets a push when a new phone is paired ("A new phone was paired … Not you? Remove it in Settings"),
+so a lost phone that pairs another is seen.
+
+Pushes follow the buddy a phone shows: a buddy's quests, approvals, notices and digests go to the phones
+showing that buddy, and move with it when a phone switches. Notices about no buddy (a redeploy, a
+backup, usage, a logged-out Claude Code, the NUC unreachable, a self-change to approve) go to every phone.
 
 ## Upgrades
 

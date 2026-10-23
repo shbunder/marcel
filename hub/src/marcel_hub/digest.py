@@ -500,7 +500,7 @@ def headline(bundle: dict[str, Any]) -> str:
 
 class DigestPushes(Protocol):
     def digest(
-        self, message_id: str, title: str, body: str, user_id: str | None = None
+        self, message_id: str, title: str, body: str, agent_id: str | None = None
     ) -> None: ...
 
 
@@ -828,12 +828,12 @@ class Digests:
         with Session(self.engine) as s:
             version = s.get(ArtifactVersion, (art.id, art.current_version))
             summary = (version.summary if version else None) or art.title
-        message_id, user_id = self._post(
+        message_id = self._post(
             p.agent_id, role=MessageRole.agent, kind=MessageKind.artifact, body={},
             artifact_id=art.id, project_id=art.project_id,
         )  # fmt: skip
         if message_id is not None and push:
-            self._push(message_id, label, summary, user_id)
+            self._push(message_id, label, summary, p.agent_id)  # to its buddy's phones
 
     def _fallback(self, p: Pending, unreachable: bool = False) -> None:
         label = BY_DIGEST[p.digest].label
@@ -846,30 +846,30 @@ class Digests:
         )
         text = f'The {label} was not written: {why}. In short: {p.headline}'
         log.warning('The %s for agent %s was not published in time.', label, p.agent_id)
-        message_id, user_id = self._post(
+        message_id = self._post(
             p.agent_id, role=MessageRole.system, kind=MessageKind.text, body={'text': text}
         )
         if message_id is not None:
-            self._push(message_id, label, text, user_id)
+            self._push(message_id, label, text, p.agent_id)
 
-    def _post(self, agent_id: str, **message: Any) -> tuple[str | None, str | None]:
+    def _post(self, agent_id: str, **message: Any) -> str | None:
         try:
             with Session(self.engine) as s:
                 agent = s.get(Agent, agent_id)
                 if agent is None:
-                    return None, None
+                    return None
                 main = ensure_main_conversation(s, agent)
                 posted = post_message(s, self.events, main, **message)
-                return posted.id, agent.owner_user_id
+                return posted.id
         except Exception:
             log.exception('Could not post the digest in the conversation of %s.', agent_id)
-            return None, None
+            return None
 
-    def _push(self, message_id: str, label: str, body: str, user_id: str | None) -> None:
+    def _push(self, message_id: str, label: str, body: str, agent_id: str) -> None:
         if self.pusher is None:
             return
         title = label[0].upper() + label[1:]
-        self.pusher.digest(message_id, title, clip(body, BODY_MAX), user_id)
+        self.pusher.digest(message_id, title, clip(body, BODY_MAX), agent_id)
 
     # The state file ---------------------------------------------------------------------------
 

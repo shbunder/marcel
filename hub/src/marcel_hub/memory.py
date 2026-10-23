@@ -638,12 +638,27 @@ async def _capped_body(request: Request) -> bytes | None:
     return bytes(raw)
 
 
-def _repo(request: Request) -> AgentMemory | None:
-    """The memory of the buddy the calling phone shows (`Device.agent_id`, app-api 0.8.1). None
-    while there is no buddy."""
+def _agent_not_found() -> JSONResponse:
+    return _error(
+        404, 'agent_not_found', 'That buddy is not on this hub, so it has no memory here.'
+    )
+
+
+def _repo(
+    request: Request, agent_id: str | None, saving: bool = False
+) -> AgentMemory | JSONResponse | None:
+    """Whose memory (app-api 0.8.1): the buddy `agent_id`, else the one the calling phone shows
+    (`Device.agent_id`); None while there is no buddy at all. An id that is no buddy is 404
+    `agent_not_found`, and so is saving to an archived one (its memory stays readable)."""
     repo: MemoryRepo = request.app.state.memory
-    agent_id = request.app.state.memory_agent_of(current_device(request))
-    return repo.for_agent(agent_id) if agent_id is not None else None
+    if agent_id is None:
+        shown = request.app.state.memory_agent_of(current_device(request))
+        return repo.for_agent(shown) if shown is not None else None
+    with Session(request.app.state.engine) as s:
+        agent = s.get(Agent, agent_id)
+    if agent is None or (saving and agent.archived_at is not None):
+        return _agent_not_found()
+    return repo.for_agent(agent.id)
 
 
 def _etag(header: str | None) -> str | None:
@@ -654,8 +669,10 @@ def _etag(header: str | None) -> str | None:
 
 
 @router.get('/memory')
-def get_memory_tree(request: Request) -> Any:
-    mine = _repo(request)
+def get_memory_tree(request: Request, agent_id: str | None = None) -> Any:
+    mine = _repo(request, agent_id)
+    if isinstance(mine, JSONResponse):
+        return mine
     if mine is None:
         return {'files': []}
     try:
@@ -665,8 +682,10 @@ def get_memory_tree(request: Request) -> Any:
 
 
 @router.get('/memory/files/{path:path}')
-def get_memory_file(request: Request, path: str) -> Any:
-    mine = _repo(request)
+def get_memory_file(request: Request, path: str, agent_id: str | None = None) -> Any:
+    mine = _repo(request, agent_id)
+    if isinstance(mine, JSONResponse):
+        return mine
     if mine is None:
         return _not_found(path)
     try:
@@ -682,7 +701,7 @@ def get_memory_file(request: Request, path: str) -> Any:
 
 
 @router.put('/memory/files/{path:path}')
-async def put_memory_file(request: Request, path: str) -> Any:
+async def put_memory_file(request: Request, path: str, agent_id: str | None = None) -> Any:
     raw = await _capped_body(request)
     if raw is None:
         return _too_long()
@@ -696,7 +715,9 @@ async def put_memory_file(request: Request, path: str) -> Any:
     if len(body.content.encode('utf-8')) > MAX_FILE_BYTES:
         return _too_long()
     if_match = _etag(request.headers.get('If-Match'))
-    repo = _repo(request)
+    repo = _repo(request, agent_id, saving=True)
+    if isinstance(repo, JSONResponse):
+        return repo
     if repo is None:
         return _error(404, 'memory_file_not_found', 'You have no helper yet, so no memory to save.')
     try:

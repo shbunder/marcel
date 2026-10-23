@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 from sqlmodel import Session, select
-from test_channel_fakes import MESSAGE, OWNER, ChannelHub, channel_hub, check
+from test_channel_fakes import MESSAGE, ChannelHub, channel_hub, check
 from test_tasks_fakes import validator
 
 from marcel_hub import db
@@ -263,7 +263,7 @@ def test_a_version_of_an_unknown_artifact_is_refused(hub: ChannelHub) -> None:
 
 
 def test_a_version_of_another_projects_artifact_is_refused(hub: ChannelHub) -> None:
-    energy = hub.app.state.projects.create(OWNER, hub.agent_id, 'Energy')
+    energy = hub.app.state.projects.create(hub.agent_id, 'Energy')
     theirs, _ = hub.task(project_id=energy.id)
     mine, _ = hub.task()
     art = store(hub).publish_reported({'kind': 'link', 'title': 'L', 'url': 'https://a.b/'}, theirs)

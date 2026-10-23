@@ -13,6 +13,10 @@
 
 A push about no one task (the runner) opens the app's status screen, `marcel://status`.
 
+Who gets it is `pusher.Pusher._devices`'s: a buddy's task, approval, notice or digest goes to the
+phones showing that buddy; the runner, a lost push, usage, a redeploy or backup, a logged-out
+Claude and a self-change go to every phone (S-22.27, B-49).
+
 Anything else (progress, `working`, `queued`, `unknown`, `stopped`) sends nothing. Texts are read on
 a lock screen: the outcome first, in short plain words.
 """

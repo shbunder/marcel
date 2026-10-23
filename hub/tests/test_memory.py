@@ -485,3 +485,74 @@ def test_a_body_with_a_large_length_is_refused_before_reading(
     res = client.put(url('MEMORY.md'), json={'content': 'x' * 200})
     assert res.status_code == 400
     assert 'too long' in res.json()['message']
+
+
+# Memory per buddy: the `agent_id` query parameter (app-api 0.8.1, S-22.27) -------------------
+
+
+def pip(client: TestClient, tmp_path: Path) -> tuple[str, Path]:
+    """A second buddy, Pip (slug `pip`), with a note of its own on disk."""
+    res = client.post('/api/agents', json={'name': 'Pip'})
+    assert res.status_code == 201, res.text
+    folder = tmp_path / 'memory' / 'agents' / 'pip'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'MEMORY.md').write_text('Pip likes the garden.\n')
+    return res.json()['id'], folder
+
+
+def test_agent_id_picks_the_buddy_whose_memory_is_read(client: TestClient, tmp_path: Path) -> None:
+    client.put(url('MEMORY.md'), json={'content': 'Marcel keeps the bills.\n'})
+    pip_id, _ = pip(client, tmp_path)
+    theirs = client.get('/api/memory', params={'agent_id': pip_id})
+    assert theirs.status_code == 200, theirs.text
+    TREE.validate(theirs.json())
+    assert [f['path'] for f in theirs.json()['files']] == ['MEMORY.md']
+    one = client.get(url('MEMORY.md'), params={'agent_id': pip_id})
+    FILE.validate(one.json())
+    assert one.json()['content'] == 'Pip likes the garden.\n'
+    # Without it: the buddy the phone shows (Marcel).
+    assert client.get(url('MEMORY.md')).json()['content'] == 'Marcel keeps the bills.\n'
+
+
+def test_agent_id_picks_the_buddy_whose_memory_is_saved(client: TestClient, tmp_path: Path) -> None:
+    pip_id, folder = pip(client, tmp_path)
+    res = client.put(url('memory/2026-10-23.md'), params={'agent_id': pip_id},
+                     json={'content': 'Watered the tomatoes.\n'})  # fmt: skip
+    assert res.status_code == 200, res.text
+    assert (folder / 'memory' / '2026-10-23.md').read_text() == 'Watered the tomatoes.\n'
+    assert not (mine(tmp_path) / 'memory' / '2026-10-23.md').exists()
+
+
+def test_an_id_that_is_no_buddy_is_404_on_all_three(client: TestClient, tmp_path: Path) -> None:
+    # Control: delete the `agent is None` check in `memory._repo` and this goes red.
+    client.put(url('MEMORY.md'), json={'content': 'Marcel keeps the bills.\n'})
+    log_before = git_log(tmp_path / 'memory')
+    params = {'agent_id': 'agt_nope'}
+    for res in (
+        client.get('/api/memory', params=params),
+        client.get(url('MEMORY.md'), params=params),
+        client.put(url('MEMORY.md'), params=params, json={'content': 'x\n'}),
+    ):
+        assert res.status_code == 404 and res.json()['code'] == 'agent_not_found', res.text
+        ERROR.validate(res.json())
+    assert git_log(tmp_path / 'memory') == log_before, 'nothing was committed'
+
+
+def test_an_archived_buddys_memory_reads_but_takes_no_save(
+    client: TestClient, tmp_path: Path
+) -> None:
+    # Control: delete the `saving and archived_at` check in `memory._repo` and this goes red.
+    client.put(url('MEMORY.md'), json={'content': 'Marcel keeps the bills.\n'})
+    pip_id, folder = pip(client, tmp_path)
+    client.post('/api/agents', json={'name': 'Bo'})  # so Pip is not the last live buddy
+    assert client.post(f'/api/agents/{pip_id}/archive').status_code == 200
+    read = client.get(url('MEMORY.md'), params={'agent_id': pip_id})
+    assert read.status_code == 200 and read.json()['content'] == 'Pip likes the garden.\n'
+    assert client.get('/api/memory', params={'agent_id': pip_id}).status_code == 200
+    log_before = git_log(tmp_path / 'memory')
+    res = client.put(url('MEMORY.md'), params={'agent_id': pip_id},
+                     headers={'If-Match': read.json()['etag']},
+                     json={'content': 'Pip moved out.\n'})  # fmt: skip
+    assert res.status_code == 404 and res.json()['code'] == 'agent_not_found', res.text
+    assert (folder / 'MEMORY.md').read_text() == 'Pip likes the garden.\n'
+    assert git_log(tmp_path / 'memory') == log_before, 'nothing was committed'

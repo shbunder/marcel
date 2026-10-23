@@ -609,7 +609,7 @@ def test_schedules_go_to_the_schedules_port(brain: Brain) -> None:
 def test_notify_posts_in_the_main_chat_and_pushes(brain: Brain) -> None:
     pushed: list[tuple[Any, str | None]] = []
     pusher = brain.hub.app.state.pusher
-    pusher.push = lambda n, user_id: pushed.append((n, user_id)) or True
+    pusher.push = lambda n, buddy: pushed.append((n, buddy)) or True
     res = brain.post('/notify', {'text': 'The NAS is almost full.', 'level': 'urgent'})
     assert res.status_code == 200, res.text
     message_id = res.json()['message_id']
@@ -618,8 +618,8 @@ def test_notify_posts_in_the_main_chat_and_pushes(brain: Brain) -> None:
         message = s.get(Message, message_id)
     assert message is not None and message.conversation_id == brain.hub.main_id
     assert message.body_json == {'text': 'The NAS is almost full.'}
-    (n, user_id), = pushed  # fmt: skip
-    assert user_id == 'usr_owner'
+    (n, buddy), = pushed  # fmt: skip
+    assert buddy == brain.hub.agent_id, "to the phones showing the brain's buddy"
     assert n.to_api() == {
         'title': 'Marcel',
         'body': 'The NAS is almost full.',

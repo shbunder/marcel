@@ -54,6 +54,7 @@ HUB_SECRET = 'hs_' + 'a1b2c3d4' * 6
 CLASSIFIED: dict[tuple[str, str], str] = {
     ('DELETE', '/api/devices/{}'): 'phone',
     ('PUT', '/api/devices/{}/push'): 'phone',
+    ('PATCH', '/api/devices/{}'): 'phone',
     ('GET', '/api/tasks/{}'): 'phone',
     ('GET', '/api/tasks/{}/events'): 'phone',
     ('POST', '/api/tasks/{}/messages'): 'phone',
@@ -81,6 +82,7 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ('DELETE', '/api/schedules/{}'): 'phone',
     ('GET', '/api/agents/{}'): 'phone',
     ('PATCH', '/api/agents/{}'): 'phone',
+    ('POST', '/api/agents/{}/archive'): 'phone',
     ('GET', '/api/agents/{}/avatar'): 'phone',
     ('POST', '/api/agents/{}/brain/rollover'): 'phone',
     ('GET', '/api/agents/{}/brain/rollovers'): 'phone',
@@ -96,6 +98,7 @@ CLASSIFIED: dict[tuple[str, str], str] = {
 # A valid body for each route that takes one, so a 401 is the token check's, never a 400.
 BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ('PUT', '/api/devices/{}/push'): {'kind': 'ntfy', 'ntfy_topic': 'mine'},
+    ('PATCH', '/api/devices/{}'): {'agent_id': 'PIP'},
     ('POST', '/api/tasks/{}/messages'): {'text': 'Stop that.'},
     ('POST', '/api/tasks/{}/move'): {'project_id': 'PROJECT'},
     ('POST', '/api/conversations/{}/messages'): {'text': 'Hi', 'client_id': 'c'},
@@ -155,9 +158,7 @@ class World:
             s.add(message)
             s.commit()
             self.message_id = message.id
-        self.project_id = self.app.state.projects.create(
-            tokens.OWNER_USER_ID, self.marcel, 'House'
-        ).id
+        self.project_id = self.app.state.projects.create(self.marcel, 'House').id
         self.schedule_id = self.app.state.scheduler.create(
             self.marcel,
             {'name': 'Monday report', 'cron': '0 8 * * 1', 'tz': 'Europe/Brussels',
@@ -230,7 +231,7 @@ class World:
 
     def body(self, method: str, path: str) -> dict[str, Any] | None:
         body = BODIES.get((method, path))
-        swap = {'PROJECT': self.project_id, 'MESSAGE': self.message_id}
+        swap = {'PROJECT': self.project_id, 'MESSAGE': self.message_id, 'PIP': self.pip}
         return {k: swap.get(v, v) if isinstance(v, str) else v for k, v in (body or {}).items()}
 
 

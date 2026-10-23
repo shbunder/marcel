@@ -81,7 +81,7 @@ class Reader(Protocol):
 
 
 class Pushes(Protocol):
-    def push(self, n: PushNotification, user_id: str | None) -> bool: ...
+    def push(self, n: PushNotification, buddy: str | None) -> bool: ...
 
 
 class NoReader:

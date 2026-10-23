@@ -301,3 +301,27 @@ def test_0014_downgrade_gives_the_columns_back(tmp_path: Path) -> None:
         assert conn.execute(text('SELECT count(*) FROM device')).scalar_one() == 3
     db.upgrade(engine)
     assert 'agent_id' in columns(engine, 'device')
+
+
+def test_0015_gives_a_pairing_code_its_buddy_and_its_downgrade_keeps_the_codes(
+    tmp_path: Path,
+) -> None:
+    engine = db.make_engine(tmp_path / 'marcel.db')
+    db.upgrade(engine, '0014')
+    with engine.begin() as conn:  # a code made before 0015: no buddy
+        conn.execute(
+            text(
+                'INSERT INTO pairing_code (code_hash, user_id, created_at, expires_at) VALUES '
+                f"('h_old', 'usr_owner', {NOW}, {NOW})"
+            )
+        )
+    db.upgrade(engine)
+    assert 'agent_id' in columns(engine, 'pairing_code')
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT code_hash, agent_id FROM pairing_code')).all() == [
+            ('h_old', None)
+        ]
+    db.downgrade(engine, '0014')
+    assert 'agent_id' not in columns(engine, 'pairing_code')
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT code_hash FROM pairing_code')).scalars().all() == ['h_old']

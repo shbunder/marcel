@@ -297,7 +297,7 @@ def test_marcels_notes_are_added_to_the_board(hub: ChannelHub, b: Boards) -> Non
 
 
 def test_every_project_has_a_board_and_it_follows_a_rename(hub: ChannelHub, b: Boards) -> None:
-    project = b.projects.create(OWNER, hub.agent_id, 'Energy contracts', goal='Cheaper gas.')
+    project = b.projects.create(hub.agent_id, 'Energy contracts', goal='Cheaper gas.')
     assert project.id in b.keeper.due()  # project.created: built at once
     b.later(0)
     board = hub.client.get(f'/api/artifacts/{project.board_artifact_id}').json()
@@ -312,7 +312,7 @@ def test_every_project_has_a_board_and_it_follows_a_rename(hub: ChannelHub, b: B
     created = [e for e in hub.events('artifact.created') if e['data']['kind'] == 'board']
     assert [e['data']['id'] for e in created][-1] == project.board_artifact_id
 
-    b.projects.update(project.id, OWNER, {'name': 'Energy'})
+    b.projects.update(project.id, {'name': 'Energy'})
     b.settle()
     assert b.store.get(project.board_artifact_id).title == 'Energy — board'
     assert b.board(project.id)['title'] == 'Energy'
@@ -346,7 +346,7 @@ def test_a_missing_board_row_is_made_again(hub: ChannelHub, b: Boards) -> None:
 def test_a_broken_board_does_not_stop_the_others(
     hub: ChannelHub, b: Boards, caplog: pytest.LogCaptureFixture
 ) -> None:
-    other = b.projects.create(OWNER, hub.agent_id, 'Garden')
+    other = b.projects.create(hub.agent_id, 'Garden')
     real_build = b.keeper.build
 
     def build(project_id: str) -> bool:
@@ -477,7 +477,7 @@ def test_the_running_hub_rebuilds_boards_by_itself(
         keeper: BoardKeeper = hub.app.state.boards
         keeper.debounce = 0.05
         store: ArtifactStore = hub.app.state.artifacts
-        project = hub.app.state.projects.create(OWNER, hub.agent_id, 'Energy')
+        project = hub.app.state.projects.create(hub.agent_id, 'Energy')
         board_id = project.board_artifact_id
 
         def wait_for(check: Any) -> None:

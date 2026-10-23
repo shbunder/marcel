@@ -86,17 +86,27 @@ def test_a_builtin_schedule_can_be_paused_not_deleted(
     assert api('PATCH', f'/schedules/{builtin["id"]}', json={'paused': True}).status_code == 200
 
 
-def test_only_the_owner_sees_or_changes_a_schedule(
+def test_unknown_schedules_and_buddies_are_refused(api: Api, agent: str) -> None:
+    made = create(api, agent)
+    assert api('GET', '/schedules', params={'agent_id': 'agt_nope'}).json() == []
+    assert api('PATCH', '/schedules/sch_nope', json={'paused': True}).status_code == 404
+    assert api('DELETE', '/schedules/sch_nope').status_code == 404
+    res = api('POST', '/schedules', json={'agent_id': 'agt_nope', **MONDAYS})
+    assert res.status_code == 400 and 'not a buddy on this hub' in res.json()['message']
+    assert api('GET', '/schedules', params={'agent_id': agent}).json()[0]['id'] == made['id']
+
+
+def test_another_phone_sees_and_changes_a_buddys_schedule(
     api: Api, client: TestClient, agent: str
 ) -> None:
+    # One person, many buddies (ADR-013): any paired phone may change any buddy's schedule.
     made = create(api, agent)
-    stranger = Api(client, add_phone(client, user_id='usr_stranger'))
-    assert stranger('GET', '/schedules', params={'agent_id': agent}).json() == []
-    assert stranger('PATCH', f'/schedules/{made["id"]}', json={'paused': True}).status_code == 404
-    assert stranger('DELETE', f'/schedules/{made["id"]}').status_code == 404
-    res = stranger('POST', '/schedules', json={'agent_id': agent, **MONDAYS})
-    assert res.status_code == 400 and 'not one of your agents' in res.json()['message']
-    assert api('GET', '/schedules', params={'agent_id': agent}).json()[0]['paused'] is False
+    other = Api(client, add_phone(client))
+    assert [s['id'] for s in other('GET', '/schedules', params={'agent_id': agent}).json()] == [
+        made['id']
+    ]
+    assert other('PATCH', f'/schedules/{made["id"]}', json={'paused': True}).status_code == 200
+    assert api('GET', '/schedules', params={'agent_id': agent}).json()[0]['paused'] is True
 
 
 def test_the_routes_need_a_device_token(client: TestClient) -> None:

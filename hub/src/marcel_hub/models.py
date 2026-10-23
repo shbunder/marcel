@@ -185,6 +185,9 @@ class PairingCode(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime
     used_at: datetime | None = None
+    # The buddy the new phone starts on (`POST /pairing-codes`, `marcel-hub pair --buddy`; app-api
+    # 0.8.0 `NewPairingCode.agent_id`, migration 0015). None: the first live buddy.
+    agent_id: str | None = None
 
 
 INBOX_SLUG = 'inbox'

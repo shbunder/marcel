@@ -1,29 +1,42 @@
 """Routing: each event maps to the right category, level and deep link, and every push matches the
-contract's `PushNotification`. Quiet events send nothing."""
+contract's `PushNotification`. Quiet events send nothing. A buddy's push goes to the phones showing
+that buddy; a push about no buddy goes to every phone (S-22.27)."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
+from test_auth import bearer, pair
 from test_notify_fakes import Clock, RecordingNotifier, add_approval, add_device, pusher_for
 from test_tasks_fakes import add_agent, put_task, run, validator
 
+from marcel_hub.app import Settings, create_app
+from marcel_hub.auth import tokens
+from marcel_hub.channel.approvals import SELF_CHANGE_TOOL
+from marcel_hub.conversations import ensure_main_conversation
 from marcel_hub.models import (
+    Agent,
+    Approval,
     Conversation,
     ConversationKind,
+    Device,
     Message,
     MessageKind,
     MessageRole,
     Task,
     TaskLocation,
     TaskOrigin,
+    utcnow,
 )
 from marcel_hub.models import TaskState as S
 from marcel_hub.notify import Pusher, PushNotification
 from marcel_hub.notify.message import clip
 from marcel_hub.notify.routing import for_note, for_state
+from marcel_hub.users.store import ensure_owner_agent
 
 PUSH = validator('app-api.yaml#/components/schemas/PushNotification')
 
@@ -195,3 +208,144 @@ def test_a_notice_is_its_own_push_on_its_message() -> None:
         'collapse_key': 'msg_1',
     }
     PUSH.validate(n.to_api())
+
+
+# Which phones get a push (S-22.27, B-49) -------------------------------------------------------
+
+
+def two_buddies_and_phones(engine: Engine) -> None:
+    """Marcel and Pip, each with its main conversation; `dev_a` shows Marcel, `dev_b` Pip."""
+    for agent_id, name in (('agt_marcel', 'Marcel'), ('agt_pip', 'Pip')):
+        add_agent(engine, agent_id, owner='usr_owner')
+        with Session(engine) as s:
+            agent = s.get(Agent, agent_id)
+            assert agent is not None
+            agent.name = name
+            ensure_main_conversation(s, agent)
+    add_device(engine, 'dev_a')
+    add_device(engine, 'dev_b', ntfy_topic='b-topic')
+    show(engine, 'dev_a', 'agt_marcel')
+    show(engine, 'dev_b', 'agt_pip')
+
+
+def show(engine: Engine, device_id: str, agent_id: str | None) -> None:
+    with Session(engine) as s:
+        device = s.get(Device, device_id)
+        assert device is not None
+        device.agent_id = agent_id
+        s.add(device)
+        s.commit()
+
+
+def test_a_buddys_pushes_go_to_the_phones_showing_it(engine: Engine) -> None:
+    # Control: delete the buddy filter in `Pusher._devices` and this goes red.
+    two_buddies_and_phones(engine)
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    marcels = put_task(engine, S.done, agent_id='agt_marcel')
+    pips = put_task(engine, S.done, agent_id='agt_pip')
+    pips_question = put_task(engine, S.needs_you, agent_id='agt_pip')
+    approval = add_approval(engine, pips_question)
+
+    def events() -> None:
+        pusher.on_state(marcels, 'done')
+        pusher.on_state(pips, 'done')
+        pusher.approval_opened(approval)
+        pusher.note('agt_pip', 'msg_n', 'Pip', 'The NAS is almost full.')
+        pusher.digest('msg_d', 'Your morning plan', '2 approvals wait.', 'agt_marcel')
+
+    drive(pusher, events)
+    got = sorted((d, n.deep_link) for d, n in notifier.sent)
+    assert got == sorted([
+        ('dev_a', f'marcel://task/{marcels}'),
+        ('dev_b', f'marcel://task/{pips}'),
+        ('dev_b', f'marcel://approval/{approval}'),
+        ('dev_b', 'marcel://message/msg_n'),
+        ('dev_a', 'marcel://message/msg_d'),
+    ])  # fmt: skip
+
+
+def test_switching_a_phones_buddy_moves_that_buddys_next_push(tmp_path: Path) -> None:
+    """Through the app: `PATCH /devices/{id}` on the iPad, then Pip's next push."""
+    settings = Settings(data_dir=tmp_path, db_path=tmp_path / 'marcel.db')
+    with TestClient(create_app(settings)) as client:
+        engine: Engine = client.app.state.engine  # type: ignore[attr-defined]
+        with Session(engine) as s:
+            ensure_owner_agent(s, 'Marcel')
+        phone, ipad = pair(client, 'phone'), pair(client, 'iPad')
+        for paired, topic in ((phone, 'phone-topic'), (ipad, 'ipad-topic')):
+            res = client.put(f'/api/devices/{paired["device_id"]}/push',
+                             json={'kind': 'ntfy', 'ntfy_topic': topic},
+                             headers=bearer(paired['token']))  # fmt: skip
+            assert res.status_code == 200
+        pip = client.post('/api/agents', json={'name': 'Pip'}, headers=bearer(phone['token']))
+        pip_id = pip.json()['id']
+        notifier = RecordingNotifier()
+        pusher = pusher_for(engine, notifier)
+        before = put_task(engine, S.done, agent_id=pip_id)
+        drive(pusher, lambda: pusher.on_state(before, 'done'))
+        assert notifier.sent == [], 'no phone shows Pip yet'
+        res = client.patch(f'/api/devices/{ipad["device_id"]}', json={'agent_id': pip_id},
+                           headers=bearer(phone['token']))  # fmt: skip
+        assert res.status_code == 200
+        after = put_task(engine, S.done, agent_id=pip_id)
+        drive(pusher, lambda: pusher.on_state(after, 'done'))
+        assert [d for d, _ in notifier.sent] == [ipad['device_id']], 'to the iPad, not the phone'
+
+
+def test_a_notice_about_no_buddy_reaches_every_phone(engine: Engine) -> None:
+    two_buddies_and_phones(engine)
+    add_device(engine, 'dev_c', ntfy_topic='c-topic')
+    show(engine, 'dev_c', None)
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    every = ['dev_a', 'dev_b', 'dev_c']
+    usage = PushNotification(title='Marcel is pausing new work', body='Until 18:00.',
+                             category='note', level='normal', deep_link='marcel://status',
+                             collapse_key='usage')  # fmt: skip
+    drive(pusher, lambda: pusher.push(usage, None))  # usage.py
+    assert sorted(d for d, _ in notifier.sent) == every
+    notifier.sent.clear()
+    redeploy = usage.model_copy(update={'collapse_key': 'redeploy', 'title': 'Marcel is updated'})
+    drive(pusher, lambda: pusher.push(redeploy, tokens.OWNER_USER_ID))  # the watchdog's way
+    assert sorted(d for d, _ in notifier.sent) == every
+    notifier.sent.clear()
+    drive(pusher, lambda: pusher.broke('runner_unreachable', 'Marcel cannot reach the NUC', 'x'))
+    assert sorted(d for d, _ in notifier.sent) == every
+    notifier.sent.clear()
+    drive(pusher, lambda: pusher.note('agt_marcel', 'msg_u', 'Marcel', 'Claude Code 2.3 is here.',
+                                      everyone=True))  # fmt: skip
+    assert sorted(d for d, _ in notifier.sent) == every
+    notifier.sent.clear()
+    # A phone with no buddy of its own shows the first one (`buddy_of`), and gets its pushes.
+    task = put_task(engine, S.done, agent_id='agt_marcel')
+    drive(pusher, lambda: pusher.on_state(task, 'done'))
+    assert sorted(d for d, _ in notifier.sent) == ['dev_a', 'dev_c']
+
+
+def test_a_self_change_reaches_every_phone_whichever_buddy_opened_it(engine: Engine) -> None:
+    two_buddies_and_phones(engine)
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    task = put_task(engine, S.needs_you, agent_id='agt_pip')
+    with Session(engine) as s:
+        s.add(Approval(id='apr_self', task_id=task, tool=SELF_CHANGE_TOOL, request_id=None,
+                       artifact_id='art_pr', summary='Merge "Fix the digest"?'))  # fmt: skip
+        s.commit()
+    drive(pusher, lambda: pusher.approval_opened('apr_self'))
+    assert sorted(d for d, _ in notifier.sent) == ['dev_a', 'dev_b']
+
+
+def test_a_phone_whose_buddy_was_archived_gets_the_first_buddys_pushes(engine: Engine) -> None:
+    two_buddies_and_phones(engine)
+    with Session(engine) as s:
+        pip = s.get(Agent, 'agt_pip')
+        assert pip is not None
+        pip.archived_at = utcnow()
+        s.add(pip)
+        s.commit()
+    notifier = RecordingNotifier()
+    pusher = pusher_for(engine, notifier)
+    task = put_task(engine, S.done, agent_id='agt_marcel')
+    drive(pusher, lambda: pusher.on_state(task, 'done'))
+    assert sorted(d for d, _ in notifier.sent) == ['dev_a', 'dev_b']
