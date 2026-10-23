@@ -23,13 +23,13 @@ The helper's card on top, then five groups (wireframe Q6):
 - **Schedules** and **Plan usage** — each in its own box, with its buttons inline (real sub-screens are a later story).
 - **Account** — **Buddies ›** (every phone: app API 0.8.0 has no roles, ADR-013), the phones, and **Sign out of this phone** (bold red
   words): forgets the
-  ntfy topic, then runs `AppFlow.signOut` (the hub forgets this phone, then the phone forgets the hub, the sign-in and
+  ntfy topic and the push relay's handle and key (S-22.16), then runs `AppFlow.signOut` (the hub forgets this phone, then the phone forgets the hub, the sign-in and
   the cache, and shows the welcome screen; offline it still signs out and says the hub wasn't told).
 
 | Part | Hub routes | What it does |
 |---|---|---|
 | Name | `GET /me`, `PATCH /agents/{id}` | Rename the agent (1–40 characters). Shows its brain and worker models. The name is passed on (`SettingsModel.nameChanged`) so the chat header follows a rename. |
-| Notifications | `PUT /devices/{id}/push` | APNs when `/me` says the hub has it **and** this build can get a token; else an ntfy topic, with the steps to subscribe in the ntfy app (B-18). |
+| Notifications | `PUT /devices/{id}/push` | Marcel's push relay when `/me` says `push.relay` and this build has a relay address (S-22.16, `RelaySetup`: see ios/README.md § Pushes through the relay); else APNs when `/me` says the hub has it; both need a token this build can get. Otherwise, or when the relay cannot be reached, an ntfy topic, with the steps to subscribe in the ntfy app (B-18). |
 | Plan usage | `GET /usage` | The 5-hour and weekly meters, reset times, and the usage guard's own words while it holds work back. A 503 `no_reading` (the runner has not read usage since it started) says "Usage unavailable" as a plain note, not a problem. |
 | Schedules | `GET /schedules`, `PATCH`, `DELETE /schedules/{id}` | Pause / resume any schedule; delete one after a confirmation. Built-in digests can only be paused: they have no Delete button, and if the hub still answers 409 `schedule_builtin` the app says why in plain words, hides Delete and offers "Pause it instead?". 404 `schedule_not_found` means it was already deleted (the row goes); the generic `not_found` means an older hub ("not available yet"). |
 | Phones | `GET /devices`, `DELETE /devices/{id}` | Every paired device; remove another one (after a confirmation). This phone signs out with **Sign out of this phone** instead. |
@@ -49,8 +49,9 @@ who knows a topic can read what is sent to it, so it is random, the screen says 
 this phone's clipboard only (never Universal Clipboard) for two minutes (`TopicClipboard`), and signing out forgets it.
 
 **APNs.** `APNsRegistrar` asks for permission, calls `registerForRemoteNotifications`, and waits for the app delegate to
-pass on the token (20 s at most, per attempt: an earlier attempt's timer never fails a later one). The app has no `aps-environment` entitlement until there is an Apple developer
-account, so today registration fails and Settings falls back to ntfy and says why. Once a phone uses APNs, the app asks
+pass on the token (20 s at most, per attempt: an earlier attempt's timer never fails a later one). The app asks for the
+`aps-environment` entitlement (`Config/Marcel.entitlements`, S-22.16); a build signed without it (no Apple developer
+account) gets no token, and Settings falls back to ntfy and says why. Once a phone uses APNs, the app asks
 for the token again at each launch and sends a changed one to the hub. The token goes hex-encoded (`APNsToken.hex`), and
 `LiveSettingsService.setPush` checks it against the contract's pattern (`^[0-9a-fA-F]{64,200}$`, app API 0.6, the
 same check as the hub) before sending, so a malformed token is never sent; Settings says so in plain words.
@@ -120,6 +121,13 @@ the app is open still shows as a banner.
   ntfy fallback, refused permission; pause, delete, built-in digests (409 `schedule_builtin` → "Pause it instead?"), a schedule
   already gone (`schedule_not_found`); the APNs token's hex check; revoking a device; the words each section shows;
   "usage unavailable" on 503 `no_reading`; the name passed on for the chat header.
+- `RelayPushTests` (S-22.16) — turning on registers with the relay and gives the hub `{kind: relay, relay_url, handle,
+  send_secret, device_key}` (never the private key); a relay that is down, busy, refusing or answering nonsense means
+  ntfy with the note (or APNs directly on a hub with its own key); a Keychain that refuses the key spends no
+  registration; a hub that refuses the target gets the new handle forgotten; no relay without both the hub and the
+  build; a new APNs token registers again (the same one does not); sign out forgets the handle and the key, also with
+  the relay down; the live client's requests and errors as `contracts/push-relay.yaml` says; the build's address
+  checked; the registration kept in the Keychain. The extension's side is `PushKeyTests` in MarcelKit.
 - `BuddiesTests` (S-22.12) — every live buddy listed and the shown one marked; rename sends the new name (the same name
   sends nothing); archiving says the chat stays readable and drops the buddy; the last buddy's 409 in the hub's words;
   a code with no buddy sends none, one for Pip sends `agent_id` and says "It starts on Pip"; the "Buddies" snapshot.
