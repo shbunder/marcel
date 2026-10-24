@@ -10,9 +10,9 @@ import XCTest
 /// hub) and fakes for Apple and the relay; nothing reaches the network.
 @MainActor
 final class RelayPushTests: XCTestCase {
-    static let token = APNsToken.hex(Data((0..<32).map { UInt8($0 * 5 & 0xFF) }))
-    static let handle = "hY3kQ9vT2mW8pL5xR1nB7c"
-    static let secret = "Zk1QbXJ4V2c5dEw3cU5hYjJ5Rk1uVDhvSzZlUjRzVmQ"
+    nonisolated static let token = APNsToken.hex(Data((0..<32).map { UInt8($0 * 5 & 0xFF) }))
+    nonisolated static let handle = "hY3kQ9vT2mW8pL5xR1nB7c"
+    nonisolated static let secret = "Zk1QbXJ4V2c5dEw3cU5hYjJ5Rk1uVDhvSzZlUjRzVmQ"
 
     /// A relay that answers as told and remembers what it was asked.
     final class FakeRelay: PushRelay, @unchecked Sendable {

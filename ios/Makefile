@@ -15,18 +15,23 @@ SDK     := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --
 SDK_VER := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --show-sdk-version)
 PLAT    := $(DEVELOPER_DIR)/Platforms/iPhoneSimulator.platform/Developer
 TRIPLE  := $(ARCH)-apple-ios18.0-simulator
-TESTS   := $(BUILD)/spm-sim/$(ARCH)-apple-ios-simulator/debug/MarcelKitPackageTests.xctest
-AVATAR_TESTS := $(BUILD)/spm-avatar/$(ARCH)-apple-ios-simulator/debug/AvatarKitPackageTests.xctest
-PIXEL_TESTS := $(BUILD)/pixelkit-sim/$(ARCH)-apple-ios-simulator/debug/PixelKitPackageTests.xctest
-CHAT_TESTS := $(BUILD)/chat-sim/$(ARCH)-apple-ios-simulator/debug/MarcelChatPackageTests.xctest
-QUESTS_TESTS := $(BUILD)/quests-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestsPackageTests.xctest
-MAP_TESTS := $(BUILD)/map-sim/$(ARCH)-apple-ios-simulator/debug/MarcelMapPackageTests.xctest
-ITEMS_TESTS := $(BUILD)/items-sim/$(ARCH)-apple-ios-simulator/debug/MarcelItemsPackageTests.xctest
-QUEST_TESTS := $(BUILD)/quest-sim/$(ARCH)-apple-ios-simulator/debug/MarcelQuestPackageTests.xctest
-SETTINGS_TESTS := $(BUILD)/settings-sim/$(ARCH)-apple-ios-simulator/debug/MarcelSettingsPackageTests.xctest
-NOTEBOOK_TESTS := $(BUILD)/notebook-sim/$(ARCH)-apple-ios-simulator/debug/MarcelNotebookPackageTests.xctest
-LOOK_TESTS := $(BUILD)/look-sim/$(ARCH)-apple-ios-simulator/debug/MarcelLookPackageTests.xctest
-WELCOME_TESTS := $(BUILD)/welcome-sim/$(ARCH)-apple-ios-simulator/debug/MarcelWelcomePackageTests.xctest
+# Where SwiftPM put a package's test bundle. Xcode 27's SwiftPM builds `<scratch>/debug/<Package>Tests.xctest`;
+# Xcode 26's built `<scratch>/<arch>-apple-ios-simulator/debug/<Package>PackageTests.xctest`. Looked up when a recipe
+# runs (recursive `=`), after the build made it.
+test_bundle = $(firstword $(wildcard $(BUILD)/$(1)/debug/$(2)Tests.xctest) \
+  $(BUILD)/$(1)/$(ARCH)-apple-ios-simulator/debug/$(2)PackageTests.xctest)
+TESTS = $(call test_bundle,spm-sim,MarcelKit)
+AVATAR_TESTS = $(call test_bundle,spm-avatar,AvatarKit)
+PIXEL_TESTS = $(call test_bundle,pixelkit-sim,PixelKit)
+CHAT_TESTS = $(call test_bundle,chat-sim,MarcelChat)
+QUESTS_TESTS = $(call test_bundle,quests-sim,MarcelQuests)
+MAP_TESTS = $(call test_bundle,map-sim,MarcelMap)
+ITEMS_TESTS = $(call test_bundle,items-sim,MarcelItems)
+QUEST_TESTS = $(call test_bundle,quest-sim,MarcelQuest)
+SETTINGS_TESTS = $(call test_bundle,settings-sim,MarcelSettings)
+NOTEBOOK_TESTS = $(call test_bundle,notebook-sim,MarcelNotebook)
+LOOK_TESTS = $(call test_bundle,look-sim,MarcelLook)
+WELCOME_TESTS = $(call test_bundle,welcome-sim,MarcelWelcome)
 RUNNER  := $(BUILD)/runner/SimTestRunner
 SIM     ?= $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun simctl list devices available -j | python3 scripts/pick-simulator.py $(SDK_VER))
 MOCK_HUB ?= http://127.0.0.1:7499/api
