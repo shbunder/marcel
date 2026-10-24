@@ -9,9 +9,9 @@ lead's call, so **the non-admin case is untested**. Seven interactive Claude ses
 
 | Step | Result | In one line |
 |---|---|---|
-| 1. Channel allowlist drop-in | **NOT RUN** | Needs the owner's admin password; waiting for the owner |
-| 2. Supervisor under launchd | **NOT RUN** | Installing a LaunchAgent was refused by this session's permission settings; two findings below change the plan anyway |
-| 3. Login from a LaunchAgent | **NOT RUN** | Same refusal; background sessions started from a shell use the Keychain login without asking |
+| 1. Channel allowlist drop-in | **PARTLY** | The owner installed the drop-in with one password (2026-10-24). Channel registration from it is checked on the first real install (S-22.6 owns the drop-in) |
+| 2. Supervisor next to a LaunchAgent runner | **PASS** (2026-10-24) | `claude --bg` from a LaunchAgent starts the on-demand supervisor in its own process group (ppid 1); `launchctl kickstart -k` of the runner leaves the supervisor and the session alive |
+| 3. Login from a LaunchAgent | **PASS** (2026-10-24; reboot case not run) | `claude -p "/usage"` from a LaunchAgent read the plan usage from the Keychain login, exit 0, no prompt |
 | 4. Private copy of the pinned binary | **FAIL** | It starts, but the first newer `claude` of the same user takes the supervisor over and moves Marcel's sessions onto its own version |
 | 5. Sleep and wake | **PARTLY** | `caffeinate -i -w <pid>` works without admin (lid open, on power); lid, Wi-Fi and battery need the owner |
 | 6. Trust in `~/.claude.json` | **PASS** | `projects["<path>"].hasTrustDialogAccepted: true` lets `claude --bg` start there |
@@ -165,3 +165,28 @@ sudo rmdir "/Library/Application Support/ClaudeCode/managed-settings.d" "/Librar
 | LaunchAgents, `/Library` files | None made |
 
 Usage: three short Haiku turns on the owner's subscription.
+
+
+## Second sitting, 2026-10-24 (macOS 27.0.1, Claude Code 2.1.300)
+
+The owner ran the LaunchAgent and drop-in commands by hand (this session's permission settings refuse `launchctl`
+and writes to `~/Library/LaunchAgents`). Files: `la/` (runner.sh, usage.sh, the two plists and their logs).
+
+- **Step 3:** `com.marcel.sp11.usage` (one-shot) printed the real `/usage` screen, `exit=0`. The Keychain login works
+  from a LaunchAgent in the `gui/501` domain. **Finding:** launchd's environment has no `node` on `PATH`; a SessionEnd
+  hook from another plugin failed with `node: command not found`. S-22.4's plist must put Marcel's node 22 first on
+  `PATH` (it already says so) — this is now evidence, not a guess.
+- **Step 2:** first run refused with "Workspace not trusted": a sub-folder of a trusted repo is **not** trusted by
+  inheritance. After writing `projects[<folder>].hasTrustDialogAccepted` (step 6's method) and `kickstart -k`, the
+  runner started `sp11-probe`. Process table:
+  - runner.sh: pid 11103, pgid 11103
+  - supervisor `claude daemon run --origin transient`: pid 11199, **ppid 1, pgid 11199** (own group)
+  - session: pid 11297, under `bg-pty-host`, pgid 11297
+  Between the two kickstarts the supervisor restarted with `cause=upgrade` (10:37:28Z) and adopted the session
+  (`adopted=1`) — the takeover SP11 described, triggered by another client. The second `launchctl kickstart -k`
+  (10:38:54Z) restarted the runner (new pid 14195); the supervisor (12591) and the session (13447) **survived**, and
+  `claude agents --json` still listed `sp11-probe`. So S-22.3's check is: the supervisor's pgid differs from the
+  runner job's, and a runner restart never takes sessions down. `AbandonProcessGroup` is not needed.
+- **Not run:** a reboot with automatic login, and "before anyone logs in" (expected: nothing runs, as LaunchAgents
+  need a GUI login). Step 1's channel registration is checked on the first real Mac install.
+- **Cleaned up:** the session stopped, the trust entry removed. The owner removes the two plists and the drop-in.

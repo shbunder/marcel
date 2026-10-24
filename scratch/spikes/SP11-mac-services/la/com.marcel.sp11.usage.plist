@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.marcel.sp11.usage</string>
+<key>ProgramArguments</key><array><string>/Users/shaunbundervoet/Developer/projects/marcel-src/scratch/spikes/SP11-mac-services/la/usage.sh</string></array>
+<key>RunAtLoad</key><true/>
+
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>/Users/shaunbundervoet/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+<key>StandardErrorPath</key><string>/Users/shaunbundervoet/Developer/projects/marcel-src/scratch/spikes/SP11-mac-services/la/usage.err</string>
+</dict></plist>
