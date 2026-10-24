@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import CLAUDE_VERSION_LINE, UnixConnection, apart
+from conftest import CLAUDE_VERSION_LINE, RUNNER_PGID, UnixConnection, apart, fake_ps, mac
 from fake_claude import EXECUTABLE, FakeClaude
 
 from marcel_runner import server
 from marcel_runner.claude_env import scrubbed_env
 from marcel_runner.health import Settings, collect_health
+from marcel_runner.platform import MAC_REFUSAL, Linux, MacOS
 from marcel_runner.server import UnixHTTPServer, serve
 from marcel_runner.sessions import (
     ALLOWED_TOOLS,
@@ -103,6 +104,7 @@ class Rig:
         self.sock = self.sockdir / 'runner.sock'
         self.srv: UnixHTTPServer | None = None
         self.sessions: Sessions | None = None
+        self.system: Linux | MacOS = apart  # the Linux checks; `mac_rig` swaps in macOS
 
     def mode(self, *flags: str) -> None:
         self.mode_file.write_text(' '.join(flags))
@@ -114,7 +116,7 @@ class Rig:
             self.settings,
             self.state,
             home=self.fake.home,
-            cgroup_of=apart,
+            system=self.system,
             channel_wait=channel_wait,
             spawn_timeout=spawn_timeout,
             poll=0.02,
@@ -122,7 +124,7 @@ class Rig:
         )
         usage = UsageProbe(self.claude, env=self.fake.env())  # the fake's HOME, never the real one
         self.srv = serve(
-            self.sock, self.settings, cgroup_of=apart, usage=usage, sessions=self.sessions
+            self.sock, self.settings, system=self.system, usage=usage, sessions=self.sessions
         )
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         return self.sessions
@@ -647,7 +649,7 @@ def test_without_sessions_the_server_still_404s_them(tmp_path: Path) -> None:
         rig.srv = serve(
             rig.sock,
             rig.settings,
-            cgroup_of=apart,
+            system=apart,
             usage=UsageProbe(rig.claude, env=rig.fake.env()),
         )
         threading.Thread(target=rig.srv.serve_forever, daemon=True).start()
@@ -918,3 +920,46 @@ def test_reading_a_log_that_was_rewritten_starts_again_at_zero(tmp_path: Path) -
     assert _read_lines(log, 4) == ['two']
     assert _read_lines(log, 999) == ['one', 'two']  # shorter than where the runner was
     assert _read_lines(tmp_path / 'gone.log') == []
+
+
+# --- on a Mac (S-22.3): the shared, on-demand supervisor --------------------------------------
+
+
+@pytest.fixture
+def mac_rig(rig: Rig) -> Rig:
+    """The runner with the macOS checks and a fake `ps`: the supervisor (pid 1) in its own group."""
+    rig.system = mac(rig.tmp)
+    return rig
+
+
+def test_mac_with_no_supervisor_the_runner_starts_and_a_spawn_runs_claude_bg(mac_rig: Rig) -> None:
+    mac_rig.mode('supervisor-down')  # none yet: the first `claude --bg` starts one
+    mac_rig.start()
+    status, health = mac_rig.call('GET', '/health')
+    assert (status, health['ok'], health['supervisor']['running']) == (200, True, False)
+    status, body = mac_rig.spawn(name='first')
+    assert status == 201, body
+    assert len(mac_rig.calls_with('--bg')) == 1
+
+
+def test_mac_spawn_is_refused_when_the_supervisor_would_die_with_the_runner(mac_rig: Rig) -> None:
+    mac_rig.start()
+    assert mac_rig.spawn(name='w1')[0] == 201
+    fake_ps(mac_rig.tmp, supervisor_pgid=RUNNER_PGID)  # now in the runner job's group
+    status, body = mac_rig.spawn(name='w2')
+    assert (status, body['code']) == (422, 'no_supervisor')
+    assert MAC_REFUSAL in body['message']
+    assert len(mac_rig.calls_with('--bg')) == 1
+
+
+def test_mac_runner_never_stops_the_shared_supervisor(mac_rig: Rig) -> None:
+    """Other people's background sessions may be on it: the runner stops only its own sessions."""
+    mac_rig.start()
+    status, spawned = mac_rig.spawn(name='w1')
+    assert status == 201, spawned
+    assert mac_rig.call('POST', f'/sessions/{spawned["session_id"]}/stop')[0] == 200
+    mac_rig.call('GET', '/health')
+    mac_rig.stop_runner()
+    stops = [c['argv'][1:] for c in mac_rig.calls() if 'stop' in c['argv'][1:]]
+    assert stops and all(argv[0] == 'stop' and len(argv) == 2 for argv in stops), stops
+    assert not [c for c in mac_rig.calls() if c['argv'][1:2] == ['daemon'] and 'stop' in c['argv']]

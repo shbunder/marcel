@@ -15,7 +15,8 @@ from test_watch import SID, SID2, StubRoster, row
 
 from marcel_runner import health
 from marcel_runner.health import ClaudeProbe, Probe, Settings, last_shutdown
-from marcel_runner.watch import Watcher
+from marcel_runner.platform import Linux, MacOS
+from marcel_runner.watch import Feed, Watcher
 
 API = yaml.safe_load(
     (Path(__file__).resolve().parents[2] / 'contracts' / 'runner-api.yaml').read_text()
@@ -242,3 +243,32 @@ def test_the_real_sessions_get_a_probe(tmp_path: Path) -> None:
     watcher = Watcher(WithSettings(tmp_path))
     assert isinstance(watcher.probe, ClaudeProbe) and watcher.expected == '2.1.296'
     assert Watcher(StubRoster(tmp_path)).probe is None
+
+
+# --- what the outage warning tells you to check, per system (S-22.3) ------------------------------
+
+
+@pytest.mark.parametrize(
+    ('system', 'says', 'never'),
+    [
+        (Linux(), 'marcel-claude-daemon.service', 'claude daemon status'),
+        (MacOS(), '`claude daemon status`', 'marcel-claude-daemon.service'),
+    ],
+)
+def test_the_outage_warning_names_what_to_check_on_each_system(
+    roster: StubRoster, system: Linux | MacOS, says: str, never: str
+) -> None:
+    w = Watcher(roster, Feed(first_seq=1), system=system, probe=lambda: None)
+    roster.errors = 3
+    warning = [w.poll() for _ in range(3)][2][0]
+    assert warning['type'] == 'runner.warning'
+    assert says in warning['message']
+    assert never not in warning['message']
+
+
+def test_the_watcher_uses_the_sessions_system() -> None:
+    class Rows(StubRoster):
+        system = MacOS()
+
+    w = Watcher(Rows(Path('/nonexistent')), probe=lambda: None)
+    assert isinstance(w.system, MacOS)

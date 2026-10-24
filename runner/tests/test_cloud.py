@@ -532,14 +532,14 @@ class CloudRig(Rig):
             self.settings,
             self.state,
             home=self.fake.home,
-            cgroup_of=apart,
+            system=apart,
             channel_wait=channel_wait,
             spawn_timeout=spawn_timeout,
         )
         self.srv = serve(
             self.sock,
             self.settings,
-            cgroup_of=apart,
+            system=apart,
             usage=UsageProbe(self.claude, env=self.fake.env()),
             sessions=self.sessions,
             cloud=Cloud(self.claude, self.fake.home),

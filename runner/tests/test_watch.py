@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from marcel_runner import watch
+from marcel_runner.platform import Linux
 from marcel_runner.server import UnixHTTPServer, bind_socket
 from marcel_runner.sessions import SessionError
 from marcel_runner.usage import UsageProbe
@@ -261,7 +262,7 @@ def test_after_waits_for_new_events_and_says_when_to_reconnect() -> None:
 def test_three_failed_polls_warn_once_and_the_watcher_recovers(
     stub: StubRoster, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    w = Watcher(stub, Feed(first_seq=1))
+    w = Watcher(stub, Feed(first_seq=1), system=Linux())
     stub.rows = [row()]
     w.poll()
     stub.errors = 5  # a supervisor restart: `claude agents` fails for a while

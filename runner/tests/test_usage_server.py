@@ -35,7 +35,7 @@ def fake(tmp_path: Path) -> FakeClaude:
 
 
 def start(sock: Path, supervisor_claude: Path, probe: UsageProbe) -> UnixHTTPServer:
-    srv = serve(sock, Settings(claude=supervisor_claude, cap=4), cgroup_of=apart, usage=probe)
+    srv = serve(sock, Settings(claude=supervisor_claude, cap=4), system=apart, usage=probe)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -104,7 +104,7 @@ def test_post_usage_is_405(sock_path: Path, fake_claude: Path, fake: FakeClaude)
 def test_serve_builds_its_own_probe_on_the_configured_claude(
     sock_path: Path, fake_claude: Path
 ) -> None:
-    srv = serve(sock_path, Settings(claude=fake_claude, cap=4), cgroup_of=apart)
+    srv = serve(sock_path, Settings(claude=fake_claude, cap=4), system=apart)
     try:
         assert srv.usage.claude == fake_claude
     finally:
@@ -130,7 +130,7 @@ def test_logged_in_again_the_old_logged_out_reason_is_gone_before_login_says_ok(
     clock = Clock()
     login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=clock)
     srv = serve(
-        sock_path, Settings(claude=fake_claude, cap=4), cgroup_of=apart, usage=probe, login=login
+        sock_path, Settings(claude=fake_claude, cap=4), system=apart, usage=probe, login=login
     )
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -171,7 +171,7 @@ def test_logged_out_after_a_good_reading_the_reason_is_gone_before_login_says_ok
     clock = Clock()
     login = LoginCheck(fake_claude, tmp_path / 'state', tmp_path / 'daemon.log', clock=clock)
     srv = serve(
-        sock_path, Settings(claude=fake_claude, cap=4), cgroup_of=apart, usage=probe, login=login
+        sock_path, Settings(claude=fake_claude, cap=4), system=apart, usage=probe, login=login
     )
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 

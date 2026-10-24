@@ -2,14 +2,17 @@
 
 import http.client
 import json
+import os
 import socket
 import stat
+import sys
 from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
 
 from marcel_runner.health import pinned_version
+from marcel_runner.platform import Linux, MacOS
 
 # `claude daemon status` with no supervisor, recorded on the NUC with Claude Code 2.1.289 (exit
 # code 1). Only the home path is changed.
@@ -135,8 +138,83 @@ def fake_claude(tmp_path: Path) -> Path:
     return claude
 
 
-def apart(pid: int) -> str:
+def _apart(pid: int) -> str:
     """cgroup stub: the supervisor lives in another unit than this process."""
-    import os
-
     return 'runner.service' if pid == os.getpid() else 'marcel-claude-daemon.service'
+
+
+# The Linux checks, with the supervisor in its own unit: what most tests run against, on any system.
+apart = Linux(_apart)
+
+
+# `claude daemon status` on a Mac with the on-demand supervisor up, recorded on the owner's MacBook
+# with Claude Code 2.1.310 (exit code 0; S-22.3's drill, 2026-10-24): a supervisor started by the
+# first `claude --bg`. The pid is 1, the home path is changed.
+DAEMON_STATUS_RUNNING_MAC = """\
+pid:     1
+version: 2.1.310
+uptime:  8s
+origin:  transient — started on-demand by `claude --bg` (pid 57553) in /Users/m
+config:  /Users/m/.claude/daemon.json
+log:     /Users/m/.claude/daemon.log
+
+bg sessions:
+  sock dir:     /tmp/cc-daemon-501/33cacad1
+  control.sock: reachable
+  bg workers:   1 running (control.sock), 1 in roster.json
+  roster.json:  updated 6s ago
+  daemon.log:   7.9KB at /Users/m/.claude/daemon.log
+
+holding this daemon open:
+  1 bg worker running (daemon waits for them to settle)
+
+to let it idle-exit: wait for (or cancel) bg workers and close any `claude agents`
+"""
+
+RUNNER_PGID = 4242  # the runner job's process group in the fake `ps`
+
+FAKE_PS = """#!{python}
+import json, sys
+args = sys.argv[1:]
+with open({calls!r}, 'a') as f:
+    f.write(json.dumps(args) + '\\n')
+table = {table!r}
+wanted = args[args.index('-p') + 1].split(',')
+for pid in wanted:
+    if pid in table:
+        print(table[pid])
+"""
+
+
+def fake_ps(tmp_path: Path, supervisor_pgid: int, *, runner: bool = True) -> Path:
+    """A `ps` that knows two processes: this one (the runner, group RUNNER_PGID) and the supervisor
+    (pid 1, ppid 1 as SP11 saw it, group `supervisor_pgid`). Like macOS `ps -o pid=,ppid=,pgid= -p
+    a,b` it prints the rows of the pids it knows and leaves out the others, exit 0. Each call's
+    arguments go to `ps.calls`, one JSON list per line."""
+    table = {'1': f'    1     1 {supervisor_pgid:5d}'}
+    if runner:
+        table[str(os.getpid())] = f'{os.getpid():5d}     1 {RUNNER_PGID:5d}'
+    ps = tmp_path / 'ps'
+    ps.write_text(
+        FAKE_PS.format(python=sys.executable, calls=str(tmp_path / 'ps.calls'), table=table)
+    )
+    ps.chmod(0o755)
+    return ps
+
+
+def mac(tmp_path: Path, supervisor_pgid: int = 1, **kw) -> MacOS:
+    """The macOS checks with a fake `ps`. The default: the supervisor leads its own group."""
+    return MacOS(ps=fake_ps(tmp_path, supervisor_pgid, **kw))
+
+
+def mac_claude(tmp_path: Path, running: bool = True) -> Path:
+    """A claude as on a Mac: the on-demand supervisor is up (DAEMON_STATUS_RUNNING_MAC), or none
+    runs (exit 1, DAEMON_STATUS_NOT_RUNNING)."""
+    status = tmp_path / 'daemon-status.txt'
+    status.write_text(DAEMON_STATUS_RUNNING_MAC if running else DAEMON_STATUS_NOT_RUNNING)
+    return write_script(
+        tmp_path / 'claude',
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
+        f'if [ "$1" = "daemon" ]; then cat "{status}"; exit {0 if running else 1}; fi\n'
+        'exit 2\n',
+    )

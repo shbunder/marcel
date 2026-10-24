@@ -11,9 +11,7 @@ from typing import Any
 
 from marcel_runner import __version__
 from marcel_runner.claude_env import scrubbed_env
-
-SUPERVISOR_UNIT = 'marcel-claude-daemon.service'
-
+from marcel_runner.platform import System, current
 
 # The one place the Claude Code version Marcel is tested with lives (S-03.10).
 PIN_FILE = Path(__file__).resolve().parents[2] / 'claude-version'
@@ -26,7 +24,7 @@ def pinned_version(path: Path = PIN_FILE) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    claude: Path  # absolute: systemd's user PATH has no ~/.local/bin
+    claude: Path  # absolute: the service's PATH (systemd's, launchd's) has no ~/.local/bin
     cap: int
     timeout: float = 10.0
     expected: str = field(default_factory=pinned_version)
@@ -49,10 +47,6 @@ def parse_pid(status: str) -> int | None:
     """The supervisor's pid from `claude daemon status` text, or None. Lenient on purpose."""
     m = re.search(r'\bpid\b[ \t]*[:=]?[ \t]*(\d+)', status, re.IGNORECASE)
     return int(m.group(1)) if m else None
-
-
-def cgroup_of(pid: int) -> str:
-    return Path(f'/proc/{pid}/cgroup').read_text()
 
 
 def _run(settings: Settings, *args: str) -> subprocess.CompletedProcess[str]:
@@ -87,10 +81,10 @@ def _claude_version(settings: Settings) -> tuple[str, str | None]:
     return p.stdout.strip(), None
 
 
-def _supervisor(
-    settings: Settings, own_cgroup: str | None, read_cgroup: Callable[[int], str]
-) -> tuple[dict, str | None]:
-    """(supervisor object, reason). The reason is None only when it runs in its own unit."""
+def _supervisor(settings: Settings, system: System) -> tuple[dict, str | None]:
+    """(supervisor object, reason). The reason is None when sessions may start: the supervisor
+    would outlive a runner restart, or (on a Mac) none runs, and the next `claude --bg` starts
+    one."""
     cmd = f'`{settings.claude} daemon status`'
     down = {'running': False, 'own_unit': False}
     unsure = {'running': True, 'own_unit': False}
@@ -101,52 +95,35 @@ def _supervisor(
     except OSError as e:
         return down, f'The runner could not run {cmd}: {e.strerror or e}.'
     if p.returncode == 1:  # documented: exit 1 means the supervisor is not running
-        return down, (
-            f'Claude has no background supervisor running. '
-            f'Start {SUPERVISOR_UNIT} (`systemctl --user start {SUPERVISOR_UNIT}`).'
-        )
+        return down, system.no_supervisor()
     if p.returncode != 0:
         said = (p.stderr or p.stdout).strip() or f'exit code {p.returncode}'
         return down, f'{cmd} failed, so the runner cannot tell if a supervisor runs: {said}'
-    unknown = (
-        f"The runner could not tell where Claude's supervisor runs, so it will not start "
-        f'sessions. Check that it runs in {SUPERVISOR_UNIT}.'
-    )
     pid = parse_pid(p.stdout)
     if pid is None:
-        return unsure, f'{unknown} {cmd} gave no process id.'
-    if own_cgroup is None:
-        return unsure, f'{unknown} The runner could not read its own cgroup.'
-    try:
-        theirs = read_cgroup(pid)
-    except OSError:
-        return unsure, f'{unknown} The runner could not read the cgroup of process {pid}.'
-    if theirs == own_cgroup:
-        return unsure, (
-            f"Claude's supervisor runs inside the runner, so a runner restart would kill "
-            f'every session. Stop it, start {SUPERVISOR_UNIT}, then restart the runner.'
-        )
+        return unsure, f'{system.cannot_tell()} {cmd} gave no process id.'
+    problem = system.own_service_check(pid)
+    if problem is not None:
+        return unsure, problem
     return {'running': True, 'own_unit': True}, None
 
 
-def collect_health(
+def check(
     settings: Settings,
     active_workers: Callable[[], int],
-    cgroup_of: Callable[[int], str] = cgroup_of,
+    system: System | None = None,
     login: Callable[[], dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """The `Health` object from contracts/runner-api.yaml. Always answers; read `ok`.
-
-    With `login` (a `login.LoginCheck`; only the `/health` route passes it, so a session start
-    never waits for `claude auth status`) it adds `login`, which never changes `ok` or `reason`."""
+) -> tuple[dict[str, Any], str | None]:
+    """The `Health` object, and the supervisor's own reason (None when sessions may start as
+    far as the supervisor goes). The start-up gate reads the second: a wrong Claude Code version
+    does not stop the runner from starting, a supervisor that would die with it does."""
+    system = system if system is not None else current()
     claude_version, reason = _claude_version(settings)
     supervisor = {'running': False, 'own_unit': False}
+    supervisor_reason = None
     if reason is None:
-        try:
-            own: str | None = cgroup_of(os.getpid())
-        except OSError:
-            own = None
-        supervisor, reason = _supervisor(settings, own, cgroup_of)
+        supervisor, supervisor_reason = _supervisor(settings, system)
+        reason = supervisor_reason
     reasons = [r for r in (version_problem(claude_version, settings.expected), reason) if r]
     reason = ' '.join(reasons) or None
     health: dict[str, Any] = {
@@ -162,7 +139,21 @@ def collect_health(
         health['reason'] = reason
     if login is not None:
         health['login'] = login()
-    return health
+    return health, supervisor_reason
+
+
+def collect_health(
+    settings: Settings,
+    active_workers: Callable[[], int],
+    system: System | None = None,
+    login: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The `Health` object from contracts/runner-api.yaml. Always answers; read `ok`.
+
+    `system` is `platform.Linux()` or `platform.MacOS()` (default: the one this runs on).
+    With `login` (a `login.LoginCheck`; only the `/health` route passes it, so a session start
+    never waits for `claude auth status`) it adds `login`, which never changes `ok` or `reason`."""
+    return check(settings, active_workers, system, login)[0]
 
 
 # Claude Code changing under the runner (S-03.12) ------------------------------------------------

@@ -76,7 +76,7 @@ def brains(tmp_path: Path, host: Host, fake_claude: Path) -> Brains:
 @pytest.fixture
 def sock(tmp_path: Path, brains: Brains, fake_claude: Path) -> Iterator[Path]:
     path = Path(tempfile_dir()) / 'r.sock'
-    srv = serve(path, Settings(claude=fake_claude, cap=1), cgroup_of=apart, brains=brains)
+    srv = serve(path, Settings(claude=fake_claude, cap=1), system=apart, brains=brains)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield path
     srv.shutdown()

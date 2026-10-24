@@ -6,10 +6,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import CLAUDE_VERSION_LINE, apart, request, write_script
+from conftest import CLAUDE_VERSION_LINE, RUNNER_PGID, apart, mac, mac_claude, request, write_script
 
 from marcel_runner import server
 from marcel_runner.health import Settings
+from marcel_runner.platform import MAC_REFUSAL, Linux, MacOS
 from marcel_runner.server import StartupError, bind_socket, serve
 
 
@@ -27,7 +28,7 @@ def sock_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def running(sock_path: Path, fake_claude: Path) -> Iterator[Path]:
     cfg = Settings(claude=fake_claude, cap=4)
-    srv = serve(sock_path, cfg, cgroup_of=apart, active_workers=lambda: 0)
+    srv = serve(sock_path, cfg, system=apart, active_workers=lambda: 0)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     yield sock_path
@@ -46,7 +47,7 @@ def test_server_answers_health_on_a_temp_socket(running: Path) -> None:
 
 def test_health_is_200_even_when_claude_is_missing(sock_path: Path, tmp_path: Path) -> None:
     cfg = Settings(claude=tmp_path / 'absent', cap=4)
-    srv = serve(sock_path, cfg, cgroup_of=apart, active_workers=lambda: 0)
+    srv = serve(sock_path, cfg, system=apart, active_workers=lambda: 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         status, body = request(sock_path, 'GET', '/health')
@@ -181,7 +182,7 @@ def test_start_is_refused_without_a_supervisor_outside_our_cgroup(
 ) -> None:
     cfg = Settings(claude=fake_claude, cap=4)
     with pytest.raises(StartupError, match='marcel-claude-daemon.service'):
-        serve(sock_path, cfg, cgroup_of=lambda pid: 'same', active_workers=lambda: 0)
+        serve(sock_path, cfg, system=Linux(lambda pid: 'same'), active_workers=lambda: 0)
     assert not sock_path.exists()  # refused before binding
 
 
@@ -192,14 +193,14 @@ def test_start_is_refused_when_no_supervisor_runs(sock_path: Path, tmp_path: Pat
         'echo "not running"; exit 1\n',
     )
     with pytest.raises(StartupError, match='marcel-claude-daemon.service'):
-        serve(sock_path, Settings(claude=c, cap=4), cgroup_of=apart, active_workers=lambda: 0)
+        serve(sock_path, Settings(claude=c, cap=4), system=apart, active_workers=lambda: 0)
 
 
 def test_missing_claude_still_starts_so_health_can_say_why(sock_path: Path, tmp_path: Path) -> None:
     srv = serve(
         sock_path,
         Settings(claude=tmp_path / 'absent', cap=4),
-        cgroup_of=apart,
+        system=apart,
         active_workers=lambda: 0,
     )
     srv.server_close()
@@ -234,7 +235,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     for k in ('MARCEL_CLAUDE', 'MARCEL_WORKER_CAP', 'MARCEL_RUNNER_SOCK', 'MARCEL_RUNNER_GROUP'):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv('XDG_RUNTIME_DIR', '/run/user/1234')
-    cfg, sock, group = server.settings_from_env()
+    cfg, sock, group = server.settings_from_env(Linux())
     assert cfg.claude == Path.home() / '.local' / 'bin' / 'claude'
     assert cfg.cap == 4
     assert sock == Path('/run/user/1234/marcel/runner.sock')
@@ -262,7 +263,134 @@ def test_start_refused_with_cannot_tell_when_the_supervisor_pid_is_unknown(
         'echo "running"; exit 0\n',
     )
     with pytest.raises(StartupError) as e:
-        serve(sock_path, Settings(claude=c, cap=4), cgroup_of=apart, active_workers=lambda: 0)
+        serve(sock_path, Settings(claude=c, cap=4), system=apart, active_workers=lambda: 0)
     assert 'could not tell' in str(e.value)
     assert 'stop' not in str(e.value).lower()
     assert not sock_path.exists()
+
+
+# --- on a Mac (S-22.3) ------------------------------------------------------------------------
+
+
+def test_mac_defaults_put_the_socket_under_marcel_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for k in ('MARCEL_CLAUDE', 'MARCEL_RUNNER_SOCK', 'MARCEL_HOME'):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv('XDG_RUNTIME_DIR', '/run/user/1234')  # ignored on a Mac
+    _, sock, _ = server.settings_from_env(MacOS())
+    assert sock == Path.home() / '.marcel' / 'run' / 'runner.sock'
+    monkeypatch.setenv('MARCEL_HOME', str(tmp_path))
+    assert server.settings_from_env(MacOS())[1] == tmp_path / 'run' / 'runner.sock'
+
+
+def test_mac_relative_claude_path_names_launchd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('MARCEL_CLAUDE', 'claude')
+    with pytest.raises(StartupError, match="launchd's PATH"):
+        server.settings_from_env(MacOS())
+
+
+def test_mac_runner_starts_with_no_supervisor_and_health_is_ok(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    srv = serve(
+        sock_path,
+        Settings(claude=mac_claude(tmp_path, running=False), cap=4),
+        system=mac(tmp_path),
+        active_workers=lambda: 0,
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        status, body = request(sock_path, 'GET', '/health')
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert status == 200
+    assert body['ok'] is True
+    assert body['supervisor'] == {'running': False, 'own_unit': False}
+
+
+def test_mac_runner_refuses_a_supervisor_that_would_die_with_it(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    with pytest.raises(StartupError) as e:
+        serve(
+            sock_path,
+            Settings(claude=mac_claude(tmp_path), cap=4),
+            system=mac(tmp_path, supervisor_pgid=RUNNER_PGID),
+            active_workers=lambda: 0,
+        )
+    assert MAC_REFUSAL in str(e.value)
+    assert not sock_path.exists()  # refused before binding
+
+
+def test_mac_runner_starts_next_to_a_supervisor_in_its_own_group(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    srv = serve(
+        sock_path,
+        Settings(claude=mac_claude(tmp_path), cap=4),
+        system=mac(tmp_path),
+        active_workers=lambda: 0,
+    )
+    srv.server_close()
+
+
+def test_mac_runner_still_refuses_a_daemon_status_it_cannot_read(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    c = write_script(
+        tmp_path / 'c4',
+        f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
+        'echo "boom" >&2; exit 3\n',
+    )
+    with pytest.raises(StartupError, match='cannot tell'):
+        serve(sock_path, Settings(claude=c, cap=4), system=mac(tmp_path), active_workers=lambda: 0)
+
+
+def test_a_private_socket_is_the_owners_alone(sock_path: Path) -> None:
+    # A Mac: $MARCEL_HOME sits in a home folder of group `staff`, which every local account is in.
+    sock_path.parent.chmod(0o755)  # an existing folder others can open
+    bind_socket(sock_path, private=True).close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(sock_path.parent.stat().st_mode) == 0o700
+
+
+def test_a_new_private_socket_folder_is_made_0700(tmp_path: Path) -> None:
+    d = Path(os.environ.get('TMPDIR', '/tmp')) / f'mp-{os.getpid()}'
+    try:
+        bind_socket(d / 'run' / 'r.sock', private=True).close()
+        assert stat.S_IMODE((d / 'run').stat().st_mode) == 0o700
+    finally:
+        for p in sorted(d.rglob('*'), reverse=True):
+            p.rmdir() if p.is_dir() else p.unlink()
+        d.rmdir()
+
+
+def test_a_private_socket_folder_of_someone_else_is_refused(
+    sock_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(os, 'getuid', lambda: os.stat(sock_path.parent).st_uid + 1)
+    with pytest.raises(StartupError, match='belongs to someone else'):
+        bind_socket(sock_path, private=True)
+    assert not sock_path.exists()
+
+
+def test_the_mac_runner_listens_privately_unless_a_group_is_set(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    cfg = Settings(claude=mac_claude(tmp_path), cap=4)
+    serve(sock_path, cfg, system=mac(tmp_path), active_workers=lambda: 0).server_close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o600
+    sock_path.unlink()
+    # Linux keeps 0660: the hub may reach it through the group (SP6).
+    serve(sock_path, cfg, system=apart, active_workers=lambda: 0).server_close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o660
+
+
+def test_a_socket_path_too_long_for_the_system_is_refused_in_words(tmp_path: Path) -> None:
+    # Found on the Mac (S-22.3): a deep MARCEL_HOME passed 104 bytes and the runner crashed.
+    deep = tmp_path / ('d' * 120) / 'runner.sock'
+    with pytest.raises(StartupError, match='Use a shorter path'):
+        bind_socket(deep)
+    assert not deep.exists()

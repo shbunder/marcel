@@ -11,8 +11,11 @@ from conftest import (
     CLAUDE_VERSION,
     CLAUDE_VERSION_LINE,
     DAEMON_STATUS_NOT_RUNNING,
+    RUNNER_PGID,
     apart,
     auth_answer,
+    mac,
+    mac_claude,
     request,
     runner_api,
     write_script,
@@ -21,6 +24,7 @@ from conftest import (
 from marcel_runner import __version__, health
 from marcel_runner.health import Settings, parse_pid
 from marcel_runner.login import LOST_MESSAGE, LoginCheck
+from marcel_runner.platform import MAC_REFUSAL, Linux
 from marcel_runner.server import serve
 
 HEALTH = runner_api('Health')
@@ -38,7 +42,7 @@ def settings(claude: Path, **kw) -> Settings:
 
 
 def test_healthy_runner_reports_every_field(fake_claude: Path) -> None:
-    h = collect_health(settings(fake_claude), active_workers=lambda: 1, cgroup_of=apart)
+    h = collect_health(settings(fake_claude), active_workers=lambda: 1, system=apart)
     assert h == {
         'ok': True,
         'version': __version__,
@@ -52,7 +56,7 @@ def test_healthy_runner_reports_every_field(fake_claude: Path) -> None:
 
 def test_missing_claude_is_not_ok_with_a_reason_a_person_can_act_on(tmp_path: Path) -> None:
     missing = tmp_path / 'nope' / 'claude'
-    h = collect_health(settings(missing), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(missing), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert h['claude_version'] == ''
     assert h['supervisor'] == {'running': False, 'own_unit': False}
@@ -63,21 +67,21 @@ def test_missing_claude_is_not_ok_with_a_reason_a_person_can_act_on(tmp_path: Pa
 def test_claude_that_is_not_executable_is_not_ok(tmp_path: Path) -> None:
     plain = tmp_path / 'claude'
     plain.write_text('not a program')
-    h = collect_health(settings(plain), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(plain), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert 'cannot run' in h['reason']
 
 
 def test_claude_that_hangs_is_not_ok(tmp_path: Path) -> None:
     slow = write_script(tmp_path / 'claude', 'sleep 5\n')
-    h = collect_health(settings(slow, timeout=0.2), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(slow, timeout=0.2), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert 'did not answer' in h['reason']
 
 
 def test_claude_version_failure_is_not_ok(tmp_path: Path) -> None:
     broken = write_script(tmp_path / 'claude', 'echo boom >&2; exit 3\n')
-    h = collect_health(settings(broken), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(broken), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert h['claude_version'] == ''
     assert 'boom' in h['reason']
@@ -89,7 +93,7 @@ def test_no_supervisor_is_not_ok(tmp_path: Path) -> None:
         f'if [ "$1" = "--version" ]; then echo "{CLAUDE_VERSION_LINE}"; exit 0; fi\n'
         'echo "not running"; exit 1\n',
     )
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert h['claude_version'] == CLAUDE_VERSION_LINE
     assert h['supervisor'] == {'running': False, 'own_unit': False}
@@ -98,7 +102,7 @@ def test_no_supervisor_is_not_ok(tmp_path: Path) -> None:
 
 def test_supervisor_in_the_runners_own_cgroup_is_not_ok(fake_claude: Path) -> None:
     h = collect_health(
-        settings(fake_claude), active_workers=lambda: 0, cgroup_of=lambda pid: 'same-unit'
+        settings(fake_claude), active_workers=lambda: 0, system=Linux(lambda pid: 'same-unit')
     )
     assert h['ok'] is False
     assert h['supervisor'] == {'running': True, 'own_unit': False}
@@ -110,15 +114,13 @@ def test_supervisor_whose_cgroup_cannot_be_read_is_not_own_unit(fake_claude: Pat
     def unreadable(pid: int) -> str:
         raise OSError('gone')
 
-    h = collect_health(settings(fake_claude), active_workers=lambda: 0, cgroup_of=unreadable)
+    h = collect_health(settings(fake_claude), active_workers=lambda: 0, system=Linux(unreadable))
     assert h['supervisor'] == {'running': True, 'own_unit': False}
     assert h['ok'] is False
 
 
 def test_the_cap_and_active_count_come_from_the_caller(fake_claude: Path) -> None:
-    h = collect_health(
-        Settings(claude=fake_claude, cap=2), active_workers=lambda: 2, cgroup_of=apart
-    )
+    h = collect_health(Settings(claude=fake_claude, cap=2), active_workers=lambda: 2, system=apart)
     assert (h['cap'], h['active_workers']) == (2, 2)
 
 
@@ -148,19 +150,19 @@ def daemon(tmp_path: Path, status_body: str) -> Path:
 def test_exit_code_decides_running_not_the_text(tmp_path: Path) -> None:
     # exit 1 with text that looks healthy is still "not running"
     c = daemon(tmp_path, 'echo "running"; echo "pid: 1"; exit 1\n')
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['supervisor'] == {'running': False, 'own_unit': False}
     assert h['ok'] is False
     assert 'no background supervisor' in h['reason']
     # exit 0 with no recognisable words is running
     c = daemon(tmp_path, 'echo "all good"; echo "pid: 1"; exit 0\n')
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['ok'] is True
 
 
 def test_no_pid_means_the_runner_cannot_tell_and_never_says_stop(tmp_path: Path) -> None:
     c = daemon(tmp_path, 'echo "running"; exit 0\n')
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert h['supervisor'] == {'running': True, 'own_unit': False}
     assert 'could not tell' in h['reason']
@@ -175,7 +177,7 @@ def test_unreadable_supervisor_cgroup_means_cannot_tell_and_never_says_stop(
             return 'runner.service'
         raise OSError('gone')
 
-    h = collect_health(settings(fake_claude), active_workers=lambda: 0, cgroup_of=cg)
+    h = collect_health(settings(fake_claude), active_workers=lambda: 0, system=Linux(cg))
     assert h['ok'] is False
     assert 'could not tell' in h['reason']
     assert 'stop' not in h['reason'].lower()
@@ -187,7 +189,7 @@ def test_unreadable_runner_cgroup_fails_closed(fake_claude: Path) -> None:
             raise OSError('no /proc')
         return ''  # would equal a '' fallback for our own cgroup: must not be compared
 
-    h = collect_health(settings(fake_claude), active_workers=lambda: 0, cgroup_of=cg)
+    h = collect_health(settings(fake_claude), active_workers=lambda: 0, system=Linux(cg))
     assert h['ok'] is False
     assert h['supervisor'] == {'running': True, 'own_unit': False}
     assert 'own cgroup' in h['reason']
@@ -198,7 +200,7 @@ def test_daemon_status_that_hangs_has_its_own_reason(tmp_path: Path) -> None:
     # The timeout covers `--version` too, which can take over 0.3 s on a cold start: keep it
     # well above that, and the hang well above the timeout.
     c = daemon(tmp_path, 'exec sleep 10\n')
-    h = collect_health(settings(c, timeout=2), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c, timeout=2), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert 'did not answer' in h['reason']
     assert 'daemon status' in h['reason']
@@ -216,7 +218,7 @@ def test_daemon_status_that_cannot_run_has_its_own_reason(
         return real(cmd, *a, **k)
 
     monkeypatch.setattr(subprocess, 'run', run)
-    h = collect_health(settings(fake_claude), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(fake_claude), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert 'could not run' in h['reason']
     assert 'no background supervisor' not in h['reason']
@@ -224,7 +226,7 @@ def test_daemon_status_that_cannot_run_has_its_own_reason(
 
 def test_daemon_status_failing_for_another_reason_is_cannot_tell(tmp_path: Path) -> None:
     c = daemon(tmp_path, 'echo "unknown command" >&2; exit 2\n')
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert 'cannot tell' in h['reason']
     assert 'unknown command' in h['reason']
@@ -235,7 +237,7 @@ def test_recorded_not_running_output_gives_no_supervisor(tmp_path: Path) -> None
     recorded = tmp_path / 'daemon-status.txt'
     recorded.write_text(DAEMON_STATUS_NOT_RUNNING)
     c = daemon(tmp_path, f'cat {recorded}; exit 1\n')
-    h = collect_health(settings(c), active_workers=lambda: 0, cgroup_of=apart)
+    h = collect_health(settings(c), active_workers=lambda: 0, system=apart)
     assert h['ok'] is False
     assert h['supervisor'] == {'running': False, 'own_unit': False}
     assert 'no background supervisor' in h['reason']
@@ -298,7 +300,7 @@ def test_get_health_carries_the_login(sock_path: Path, fake_claude: Path, tmp_pa
     srv = serve(
         sock_path,
         settings(fake_claude),
-        cgroup_of=apart,
+        system=apart,
         login=login_check(fake_claude, tmp_path),
     )
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -314,3 +316,46 @@ def test_get_health_carries_the_login(sock_path: Path, fake_claude: Path, tmp_pa
     assert body['ok'] is True
     assert body['login']['state'] == 'ok'
     assert cached['login'] == body['login']
+
+
+# --- on a Mac (S-22.3): a fake `ps` and a fake `claude daemon status` ---------------------------
+
+
+def test_mac_supervisor_in_its_own_group_is_own_unit(tmp_path: Path) -> None:
+    h = collect_health(settings(mac_claude(tmp_path)), lambda: 0, mac(tmp_path))
+    assert h['ok'] is True
+    assert h['supervisor'] == {'running': True, 'own_unit': True}
+    assert 'reason' not in h
+
+
+def test_mac_supervisor_that_would_die_with_the_runner_is_refused(tmp_path: Path) -> None:
+    h = collect_health(
+        settings(mac_claude(tmp_path)), lambda: 0, mac(tmp_path, supervisor_pgid=RUNNER_PGID)
+    )
+    assert h['ok'] is False
+    assert h['supervisor'] == {'running': True, 'own_unit': False}
+    assert h['reason'] == MAC_REFUSAL
+
+
+def test_no_supervisor_on_a_mac_is_ok(tmp_path: Path) -> None:
+    """The next `claude --bg` starts one (SP11): nothing to fix, nothing to refuse."""
+    h = collect_health(settings(mac_claude(tmp_path, running=False)), lambda: 0, mac(tmp_path))
+    assert h['ok'] is True
+    assert h['supervisor'] == {'running': False, 'own_unit': False}
+    assert 'reason' not in h
+    assert not (tmp_path / 'ps.calls').exists()  # nothing to look at
+
+
+def test_a_mac_daemon_status_that_fails_otherwise_is_still_not_ok(tmp_path: Path) -> None:
+    c = daemon(tmp_path, 'echo "unknown command" >&2; exit 2\n')
+    h = collect_health(settings(c), lambda: 0, mac(tmp_path))
+    assert h['ok'] is False
+    assert 'cannot tell' in h['reason']
+
+
+def test_a_mac_status_with_no_pid_is_cannot_tell_in_mac_words(tmp_path: Path) -> None:
+    c = daemon(tmp_path, 'echo "running"; exit 0\n')
+    h = collect_health(settings(c), lambda: 0, mac(tmp_path))
+    assert h['ok'] is False
+    assert 'outlive a runner restart' in h['reason']
+    assert 'marcel-claude-daemon' not in h['reason']

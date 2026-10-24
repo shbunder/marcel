@@ -18,8 +18,9 @@ A `repo` spawn, resume and fork: see [workspaces.md](workspaces.md).
 1. The body is checked. A bad body is `400 bad_request` with the reason. `cwd` must be an absolute
    path to an existing folder. A `name` or `model` that starts with `-` is refused, so claude can
    never read it as a flag.
-2. The supervisor is checked again (`claude daemon status`, its exit code and cgroup), even if it was
-   fine when the runner started. If not: `422 no_supervisor`, with the reason.
+2. The supervisor is checked again (`claude daemon status`, its exit code, and its cgroup on Linux or
+   its process group on a Mac), even if it was fine when the runner started. If not: `422
+   no_supervisor`, with the reason. On a Mac no supervisor at all passes: `claude --bg` starts one.
 3. **The worker cap.** A `worker` spawn counts the running workers this runner started. At the cap
    (`MARCEL_WORKER_CAP`, default 4) it answers `409 cap_reached` and starts nothing. Spawns that are
    still starting count too, so two at once cannot both slip under the cap. `brain`, `side` and
@@ -81,7 +82,7 @@ whether the stop worked. A session older than the spawn is never touched.
 | `bad_request` | 400 | The body is wrong; the message says what. |
 | `cap_reached` | 409 | The worker cap is reached. Nothing was started. |
 | `claude_timeout`, `claude_unavailable` | 503 | `claude` did not answer in time, or could not be run. |
-| `no_supervisor` | 422 | Claude's supervisor is down, in the runner's cgroup, or claude is missing; or the workers cannot be counted. |
+| `no_supervisor` | 422 | Claude's supervisor would not outlive a runner restart (in the runner's cgroup on Linux, its process group on a Mac), is down (Linux only), or claude is missing; or the workers cannot be counted. |
 | `claude_version` | 422 | The installed Claude Code is not `runner/claude-version`; the message names both versions. Checked before the supervisor. |
 | `not_trusted` | 422 | The workspace was never trusted. `detail` is Claude's own line. |
 | `exited` | 422 | Claude refused to start, or printed something the runner cannot read. `detail` is what it said. |

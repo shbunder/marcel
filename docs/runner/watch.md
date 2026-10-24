@@ -82,7 +82,7 @@ that left.
 | What | What the runner does | What you see |
 |---|---|---|
 | `claude agents` fails once or twice (e.g. the supervisor is restarting) | Logs one line, keeps polling. | Nothing in the app. |
-| It fails three polls in a row | Sends one `runner.warning`, keeps polling. | "The runner has not been able to see Claude's sessions for 3 tries in a row. … Task states may be out of date until it can; it keeps trying." |
+| It fails three polls in a row | Sends one `runner.warning`, keeps polling. | "The runner has not been able to see Claude's sessions for 3 tries in a row. … Task states may be out of date until it can; it keeps trying. If it does not come back, …" (Linux: check `marcel-claude-daemon.service`; Mac: check that `claude daemon status` answers) |
 | It answers again | Sends one `runner.recovered` ("The runner can see Claude's sessions again, …") and what changed meanwhile. | Sessions the restart stopped show as `stopped`, `done` or `gone`. |
 | A job file (`~/.claude/jobs/<id>/state.json`) is missing or not JSON | Leaves `needs`, `detail` and `result` out. | The state is still right; the approval card has no text. |
 | Anything unexpected in a poll | Counts it as a failed poll and says what it was. The watcher never stops. | As above. |
