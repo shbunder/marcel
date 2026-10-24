@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import MarcelKit
+import UserNotifications
 import XCTest
 
 @testable import MarcelSettings
@@ -188,6 +189,50 @@ final class RelayPushTests: XCTestCase {
         XCTAssertEqual(rig.hub.lastBody?["handle"] as? String, rig.saved.load()?.handle)
         XCTAssertNotEqual(rig.saved.load()?.handle, Self.handle)
         XCTAssertEqual(rig.relay.forgotten, [Self.handle], "the old handle is forgotten")
+    }
+
+    /// Review: a new token the relay could not take keeps the old registration, so the next launch (Apple hands the
+    /// app its token at every launch) tries again instead of giving up.
+    func testANewTokenTheRelayCannotTakeIsTriedAgainAtTheNextLaunch() async {
+        let rig = Rig()
+        let model = await rig.model()
+        await model.turnOnNotifications()
+        let newToken = String(repeating: "cd", count: 32)
+        rig.relay.failure = .unreachable
+        let failed = await rig.setup.tokenChanged(newToken, deviceId: "dev_phone", service: rig.hub.service)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(rig.saved.load()?.apnsToken, Self.token, "still the old token: the next launch differs again")
+        rig.relay.failure = nil
+        let retried = await rig.setup.tokenChanged(newToken, deviceId: "dev_phone", service: rig.hub.service)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(rig.saved.load()?.apnsToken, newToken)
+    }
+
+    /// Review: what the extension writes is what the app reads when the push is tapped or answered: the link, the
+    /// buddy, the approval Approve answers, and a category the app registered with its actions.
+    func testWhatTheExtensionOpensIsWhatTheAppReads() throws {
+        let vectorURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "contracts/tests/fixtures/sealed-push/vector.json")
+        let vector = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: vectorURL)) as? [String: Any])
+        let key = try Curve25519.KeyAgreement.PrivateKey(
+            rawRepresentation: XCTUnwrap(Base64URL.decode(XCTUnwrap(vector["device_private_key"] as? String))))
+        let keys = FakeKeys()
+        keys.key = key
+        let content = UNMutableNotificationContent()
+        content.title = "Marcel"
+        content.body = "You have news"
+        content.userInfo = ["sealed": try XCTUnwrap(vector["sealed"])]
+        XCTAssertEqual(SealedNotification.open(content, keys: keys), .opened)
+
+        let payload = PushPayload(title: content.title, body: content.body, category: content.categoryIdentifier,
+                                  userInfo: content.userInfo)
+        XCTAssertEqual(payload.deepLink, "marcel://approval/apr_01J9ZR2")
+        XCTAssertEqual(payload.approvalId, "apr_01J9ZR2")
+        XCTAssertEqual(payload.agentId, "agt_01JA3E2")
+        XCTAssertEqual(DeepLink.parse(try XCTUnwrap(payload.deepLink)), .success(.approval("apr_01J9ZR2")))
+        let approval = try XCTUnwrap(PushCategories.make().first { $0.identifier == payload.category })
+        XCTAssertEqual(approval.actions.map(\.identifier), [PushCategories.approve, PushCategories.deny])
     }
 
     func testATokenForAPhoneNotOnTheRelayDoesNothing() async {

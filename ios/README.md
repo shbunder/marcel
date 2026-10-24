@@ -154,8 +154,9 @@ its own Apple key. What the phone does (S-22.16):
 
 1. **Turning notifications on** (Settings → Notifications → Turn on), when `/me` says `push.relay` and this build
    has a relay address: the app asks Apple for a push token, makes an X25519 key pair (CryptoKit; the private half
-   stays in the Keychain), registers with the relay (`POST /v1/register`, `sandbox` true only for a build run from
-   Xcode), and gives its hub `PUT /devices/{id}/push` `{kind: relay, relay_url, handle, send_secret, device_key}`.
+   stays in the Keychain), registers with the relay (`POST /v1/register`, `sandbox` true for a Debug build, false for
+   Release: a Release build run straight from Xcode onto a phone gets a sandbox token but says false, so its pushes
+   do not arrive; use Debug for that), and gives its hub `PUT /devices/{id}/push` `{kind: relay, relay_url, handle, send_secret, device_key}`.
    The handle and send secret are kept in the Keychain too, for signing out.
 2. **When the relay cannot be used** (no answer, busy, a refusal, or the Keychain would not keep the key), the
    phone uses APNs directly if the hub has its own key, else ntfy, and Settings says "Marcel's push service didn't
@@ -168,7 +169,9 @@ its own Apple key. What the phone does (S-22.16):
    corrupted box, content the contract does not allow) it stays "You have news", with no actions and no link. A push
    that was not sent through the relay (APNs directly) is left as it came. Nothing logs a push's words.
 4. **A new Apple token** (Apple can change it): the app registers again and forgets the old handle, but only when the
-   token differs from the one the relay has, so a normal launch spends no registration.
+   token differs from the one the relay has, so a normal launch spends no registration. If the relay or the hub
+   cannot take it, the old registration is kept and the next launch tries again (Apple hands the app its token at
+   every launch); until then pushes go to the old token, which Apple may no longer deliver to.
 5. **Sign out** forgets the handle at the relay (`DELETE /v1/handles/{handle}`, best effort: a relay that is down
    never stops a sign out), then the registration and the key pair.
 
