@@ -46,3 +46,6 @@ scratch/**/out/
 
 # Build board exports and sync files (status lives on the board, not in git)
 .board/
+
+# Xcode 27.1 leaves this behind after `make app` (S-22.16)
+ios/Marcel.xcodeproj/-Xcc/
