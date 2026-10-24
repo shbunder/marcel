@@ -60,18 +60,25 @@ public final class SettingsModel {
     @ObservationIgnored let service: any SettingsService
     @ObservationIgnored let tokens: any PushTokenSource
     @ObservationIgnored let topics: NtfyTopicStore
+    /// Marcel's push relay (S-22.16); nil when this build has no relay address.
+    @ObservationIgnored let relay: RelaySetup?
     /// This phone's device id as pairing saved it, for when `/me` could not be read.
     @ObservationIgnored let thisDevice: String?
     /// Told the agent's name whenever the hub gives it (on load and after a rename), so the chat header can follow.
     @ObservationIgnored public var nameChanged: (String) -> Void = { _ in }
 
     public init(service: any SettingsService, tokens: any PushTokenSource, topics: NtfyTopicStore = NtfyTopicStore(),
-                thisDevice: String? = nil) {
+                relay: RelaySetup? = nil, thisDevice: String? = nil) {
         self.service = service
         self.tokens = tokens
         self.topics = topics
+        self.relay = relay
         self.thisDevice = thisDevice
     }
+
+    /// When Marcel's push service cannot be used, in the words the story gives (S-22.16).
+    public static let relayDownNote =
+        "Marcel's push service didn't answer. Notifications through ntfy: install the ntfy app."
 
     // MARK: Loading
 
@@ -165,27 +172,52 @@ public final class SettingsModel {
 
     // MARK: Notifications
 
-    /// APNs when the hub can send through it and this build can receive it; ntfy otherwise (B-18).
+    /// Marcel's push relay when the hub can seal for it and this build has its address (S-22.16); else APNs when the
+    /// hub can send through it; ntfy otherwise, or when either cannot be reached (B-18). All of Apple's routes need a
+    /// token this build can get.
     public func turnOnNotifications() async {
         guard let me, !busy else { return }
         busy = true
         defer { busy = false }
-        if me.push.apns {
+        let relay = me.push.relay == true ? self.relay : nil
+        if relay != nil || me.push.apns {
+            let token: String
             do {
-                let token = try await tokens.token()
-                try await register(.init(kind: .apns, apnsToken: token))
-                push = .apns
-                pushNote = nil
-                return
+                token = try await tokens.token()
             } catch PushSetupError.notAllowed {
                 problem = PushSetupError.notAllowed.errorDescription
-                return
-            } catch let error as SettingsError {
-                problem = SettingsError.words(for: error)
                 return
             } catch {
                 // No entitlement in this build: fall through to ntfy, and say why.
                 pushNote = "This build can't use Apple's push service, so notifications go through the ntfy app."
+                await useNtfy()
+                return
+            }
+            if let relay {
+                do {
+                    let device = try await relay.connect(apnsToken: token, deviceId: me.deviceId, service: service)
+                    replace(device)
+                    push = .apns
+                    pushNote = nil
+                    return
+                } catch let error as SettingsError {
+                    problem = SettingsError.words(for: error)
+                    return
+                } catch {
+                    // The relay is down, busy or refused, or the Keychain would not keep the key.
+                    pushNote = Self.relayDownNote
+                }
+            }
+            if me.push.apns {
+                do {
+                    try await register(.init(kind: .apns, apnsToken: token))
+                    push = .apns
+                    pushNote = nil
+                    return
+                } catch {
+                    problem = SettingsError.words(for: error)
+                    return
+                }
             }
         }
         await useNtfy()
@@ -209,10 +241,12 @@ public final class SettingsModel {
 
     private func register(_ target: Components.Schemas.PushTarget) async throws {
         guard let deviceId = me?.deviceId else { return }
-        let device = try await service.setPush(deviceId: deviceId, target: target)
-        if case .loaded(var list) = devices {
-            list = list.map { $0.id == device.id ? device : $0 }
-            devices = .loaded(list)
+        replace(try await service.setPush(deviceId: deviceId, target: target))
+    }
+
+    private func replace(_ device: Device) {
+        if case .loaded(let list) = devices {
+            devices = .loaded(list.map { $0.id == device.id ? device : $0 })
         }
     }
 
@@ -288,11 +322,13 @@ public final class SettingsModel {
 
     // MARK: Devices
 
-    /// "Sign out of this phone": forgets this phone's ntfy topic, then runs the app's sign-out (`AppFlow.signOut`:
-    /// the hub forgets this phone, then the phone forgets the hub, the sign-in and the cache). Returns what to tell
-    /// the person when the hub could not be told; the phone signs out either way.
+    /// "Sign out of this phone": forgets this phone's ntfy topic and its relay handle and push key (S-22.16: the relay
+    /// is told, best effort), then runs the app's sign-out (`AppFlow.signOut`: the hub forgets this phone, then the
+    /// phone forgets the hub, the sign-in and the cache). Returns what to tell the person when the hub could not be
+    /// told; the phone signs out either way.
     public func signOut(_ appSignOut: () async -> String?) async -> String? {
         topics.clear()
+        await relay?.signOut()
         return await appSignOut()
     }
 

@@ -19,7 +19,33 @@
 		4DE10000000000000000000A /* MarcelNotebook in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE20000000000000000000A /* MarcelNotebook */; };
 		4DE10000000000000000000B /* MarcelLook in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE20000000000000000000B /* MarcelLook */; };
 		4DE10000000000000000000C /* MarcelWelcome in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE20000000000000000000C /* MarcelWelcome */; };
+		4DE10000000000000000000D /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4DA100000000000000000003 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4DE10000000000000000000E /* MarcelKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4DE20000000000000000000D /* MarcelKit */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4DAB00000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4DA900000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4DA600000000000000000002;
+			remoteInfo = NotificationService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4DAA00000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4DE10000000000000000000D /* NotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		4DA100000000000000000001 /* Marcel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Marcel.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -27,6 +53,11 @@
 		4DE300000000000000000001 /* MarcelKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MarcelKit; sourceTree = "<group>"; };
 		4DE300000000000000000002 /* PixelKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = PixelKit; sourceTree = "<group>"; };
 		4DE300000000000000000003 /* AvatarKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AvatarKit; sourceTree = "<group>"; };
+		4DA100000000000000000003 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		4DA100000000000000000004 /* Marcel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Marcel.entitlements; sourceTree = "<group>"; };
+		4DA100000000000000000005 /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
+		4DA100000000000000000006 /* NotificationService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NotificationService-Info.plist"; sourceTree = "<group>"; };
+		4DA100000000000000000007 /* Relay.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Relay.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -46,6 +77,11 @@
 				4DF100000000000000000001 /* Exceptions for "Marcel" folder in "Marcel" target */,
 			);
 			path = Marcel;
+			sourceTree = "<group>";
+		};
+		4DA200000000000000000002 /* NotificationService */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NotificationService;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -70,6 +106,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4DA300000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4DE10000000000000000000E /* MarcelKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -77,6 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				4DA200000000000000000001 /* Marcel */,
+				4DA200000000000000000002 /* NotificationService */,
 				4DE300000000000000000001 /* MarcelKit */,
 				4DE300000000000000000002 /* PixelKit */,
 				4DE300000000000000000003 /* AvatarKit */,
@@ -89,6 +134,7 @@
 			isa = PBXGroup;
 			children = (
 				4DA100000000000000000001 /* Marcel.app */,
+				4DA100000000000000000003 /* NotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -97,6 +143,10 @@
 			isa = PBXGroup;
 			children = (
 				4DA100000000000000000002 /* Marcel-Info.plist */,
+				4DA100000000000000000004 /* Marcel.entitlements */,
+				4DA100000000000000000006 /* NotificationService-Info.plist */,
+				4DA100000000000000000005 /* NotificationService.entitlements */,
+				4DA100000000000000000007 /* Relay.xcconfig */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -111,10 +161,12 @@
 				4DA700000000000000000001 /* Sources */,
 				4DA300000000000000000001 /* Frameworks */,
 				4DA800000000000000000001 /* Resources */,
+				4DAA00000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				4DAC00000000000000000001 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4DA200000000000000000001 /* Marcel */,
@@ -138,6 +190,29 @@
 			productReference = 4DA100000000000000000001 /* Marcel.app */;
 			productType = "com.apple.product-type.application";
 		};
+		4DA600000000000000000002 /* NotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4DB100000000000000000003 /* Build configuration list for PBXNativeTarget "NotificationService" */;
+			buildPhases = (
+				4DA700000000000000000002 /* Sources */,
+				4DA300000000000000000002 /* Frameworks */,
+				4DA800000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4DA200000000000000000002 /* NotificationService */,
+			);
+			name = NotificationService;
+			packageProductDependencies = (
+				4DE20000000000000000000D /* MarcelKit */,
+			);
+			productName = NotificationService;
+			productReference = 4DA100000000000000000003 /* NotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -149,6 +224,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					4DA600000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					4DA600000000000000000002 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -182,12 +260,20 @@
 			projectRoot = "";
 			targets = (
 				4DA600000000000000000001 /* Marcel */,
+				4DA600000000000000000002 /* NotificationService */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		4DA800000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4DA800000000000000000002 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -204,7 +290,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4DA700000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		4DAC00000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4DA600000000000000000002 /* NotificationService */;
+			targetProxy = 4DAB00000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		4DC100000000000000000001 /* Debug */ = {
@@ -254,7 +355,9 @@
 		};
 		4DC100000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4DA100000000000000000007 /* Relay.xcconfig */;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Marcel.entitlements;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -285,7 +388,9 @@
 		};
 		4DC100000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4DA100000000000000000007 /* Relay.xcconfig */;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Marcel.entitlements;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -314,6 +419,64 @@
 			};
 			name = Release;
 		};
+		4DC100000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/NotificationService-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Marcel;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shbunder.marcel.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		4DC100000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/NotificationService-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Marcel;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shbunder.marcel.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -331,6 +494,15 @@
 			buildConfigurations = (
 				4DC100000000000000000001 /* Debug */,
 				4DC100000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4DB100000000000000000003 /* Build configuration list for PBXNativeTarget "NotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4DC100000000000000000005 /* Debug */,
+				4DC100000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -448,6 +620,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4DE40000000000000000000C /* XCLocalSwiftPackageReference "Marcel/Welcome" */;
 			productName = MarcelWelcome;
+		};
+		4DE20000000000000000000D /* MarcelKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DE400000000000000000001 /* XCLocalSwiftPackageReference "MarcelKit" */;
+			productName = MarcelKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -23,8 +23,9 @@ enum Fx {
         "main_conversation_id": "cnv_main", "state": ["kind": "idle"], "model_brain": "opus", "model_worker": "sonnet",
     ]
 
-    static func me(apns: Bool = false, ntfy: Bool = true) -> [String: Any] {
+    static func me(apns: Bool = false, ntfy: Bool = true, relay: Bool? = nil) -> [String: Any] {
         var push: [String: Any] = ["apns": apns, "ntfy": ntfy]
+        if let relay { push["relay"] = relay }
         if ntfy { push["ntfy_server"] = "https://ntfy.sh" }
         return ["user_id": "usr_owner", "name": "Shaun", "device_id": "dev_phone", "agents": [agent],
                 "push": push]
