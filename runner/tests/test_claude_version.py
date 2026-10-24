@@ -16,6 +16,7 @@ from test_cloud import CloudRig
 from test_sessions import Rig
 
 from marcel_runner.health import PIN_FILE, Settings, pinned_version, version_problem
+from marcel_runner.platform import Linux
 from marcel_runner.server import StartupError, serve
 
 OTHER = '2.1.999'
@@ -114,7 +115,7 @@ def test_the_runner_starts_on_another_version_alone(
     srv = serve(
         sock,
         Settings(claude=claude, cap=1),
-        cgroup_of=lambda pid: 'a' if pid == 1 else 'b',
+        system=Linux(lambda pid: 'a' if pid == 1 else 'b'),
     )
     srv.server_close()
     assert f'Claude Code {OTHER} is installed' in capsys.readouterr().err
@@ -129,7 +130,7 @@ def test_with_the_version_and_the_supervisor_both_wrong_start_up_names_both(
         'if [ "$1" = "daemon" ]; then echo "not running"; exit 1; fi\nexit 2\n',
     )
     with pytest.raises(StartupError) as e:
-        serve(sock, Settings(claude=claude, cap=1), cgroup_of=lambda pid: 'x')
+        serve(sock, Settings(claude=claude, cap=1), system=Linux(lambda pid: 'x'))
     assert f'Claude Code {OTHER} is installed' in str(e.value)
     assert 'supervisor' in str(e.value).lower() or 'marcel-claude-daemon' in str(e.value)
 

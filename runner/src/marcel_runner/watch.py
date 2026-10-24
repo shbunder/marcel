@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from marcel_runner.health import ClaudeProbe, Probe, last_shutdown, log_size
+from marcel_runner.platform import System, current
 from marcel_runner.sessions import STATES, SessionError, project_dir
 
 INTERVAL = 2.0  # seconds between two polls (SP2: a poll costs ≈ 0.12 s)
@@ -235,6 +236,7 @@ class Watcher:
         keepalive: float = KEEPALIVE,
         probe: Callable[[], Probe | None] | None = None,
         expected: str | None = None,
+        system: System | None = None,
     ) -> None:
         self.sessions = sessions
         self.feed = feed or Feed()
@@ -246,6 +248,8 @@ class Watcher:
         settings = getattr(sessions, 'settings', None)  # the real Sessions; a test roster has none
         self.probe = probe or (ClaudeProbe(settings) if settings is not None else None)
         self.expected = expected or (settings.expected if settings is not None else '')
+        # The real Sessions knows its system; a test roster gets the one this runs on.
+        self.system: System = system or getattr(sessions, 'system', None) or current()
         self.daemon_log = sessions.home / '.claude' / 'daemon.log'
         self._version: str | None = None  # what the last look saw
         self._pid: int | None = None
@@ -357,7 +361,7 @@ class Watcher:
         message = (
             f"The runner has not been able to see Claude's sessions for {self.failures} tries in "
             f'a row. {why} Task states may be out of date until it can; it keeps trying. '
-            "If it does not come back, check Claude's supervisor (marcel-claude-daemon.service)."
+            f'If it does not come back, {self.system.supervisor_hint}.'
         )
         _say(message)
         return [self.feed.warn(message)]

@@ -578,7 +578,7 @@ def up(ws: Ws, tmp_path: Path) -> Iterator[tuple[Rig, Ws]]:
         rig.settings,
         rig.state,
         home=rig.fake.home,
-        cgroup_of=apart,
+        system=apart,
         channel_wait=5.0,
         poll=0.02,
     )
@@ -586,7 +586,7 @@ def up(ws: Ws, tmp_path: Path) -> Iterator[tuple[Rig, Ws]]:
     rig.srv = serve(
         rig.sock,
         rig.settings,
-        cgroup_of=apart,
+        system=apart,
         usage=UsageProbe(rig.claude, env=rig.fake.env()),  # the fake's HOME, never the real one
         sessions=sessions,
         workspaces=ws.ws,

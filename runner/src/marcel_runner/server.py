@@ -19,8 +19,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from marcel_runner import fork, resume
 from marcel_runner.brains import Brains, brains_from_env
 from marcel_runner.cloud import Cloud
-from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
+from marcel_runner.health import Settings, check, version_problem
 from marcel_runner.login import LoginCheck
+from marcel_runner.platform import System, current
 from marcel_runner.sessions import SessionError, Sessions, StateFileError, state_dir_from_env
 from marcel_runner.transcript import Tails
 from marcel_runner.usage import UsageProbe
@@ -66,6 +67,13 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
     old = os.umask(0o777 & ~SOCKET_MODE)
     try:
         s.bind(str(path))
+    except OSError as e:
+        s.close()
+        # macOS allows 104 bytes in a socket path, Linux 108: a deep MARCEL_HOME passes both.
+        raise StartupError(
+            f'The runner could not listen on {path}: {e.strerror or e}. '
+            'Use a shorter path (MARCEL_RUNNER_SOCK, or a shorter MARCEL_HOME).'
+        ) from e
     finally:
         os.umask(old)
     try:
@@ -212,7 +220,7 @@ def serve(
     path: Path,
     settings: Settings,
     group: str | None = None,
-    cgroup_of: Callable[[int], str] = cgroup_of,
+    system: System | None = None,
     active_workers: Callable[[], int] = lambda: 0,
     usage: UsageProbe | None = None,
     sessions: Sessions | None = None,
@@ -238,14 +246,17 @@ def serve(
             target=probe.refresh, name='usage-after-login', daemon=True
         ).start()
 
-    def health() -> dict:
-        return collect_health(settings, active_workers, cgroup_of, login)
+    if system is None:
+        system = sessions.system if sessions is not None else current()
 
-    first = health()
-    # With claude missing the supervisor cannot be checked: start anyway, /health says why.
-    if first['claude_version'] and not (
-        first['supervisor']['running'] and first['supervisor']['own_unit']
-    ):
+    def health() -> dict:
+        return check(settings, active_workers, system, login)[0]
+
+    first, supervisor_problem = check(settings, active_workers, system, login)
+    # With claude missing the supervisor cannot be checked: start anyway, /health says why. On a
+    # Mac no supervisor is not a problem (the first `claude --bg` starts one); one that would
+    # die with the runner is.
+    if first['claude_version'] and supervisor_problem is not None:
         raise StartupError(f'{first["reason"]} The runner did not start.')
     wrong = version_problem(first['claude_version'], settings.expected)
     if wrong:  # serve anyway, so the hub and the app can show it; every start answers 422
@@ -256,20 +267,20 @@ def serve(
     return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces, cloud, brains)
 
 
-def settings_from_env() -> tuple[Settings, Path, str | None]:
+def settings_from_env(system: System | None = None) -> tuple[Settings, Path, str | None]:
     env = os.environ
     try:
         cap = int(env.get('MARCEL_WORKER_CAP', DEFAULT_CAP))
     except ValueError:
         raise StartupError('MARCEL_WORKER_CAP must be a whole number, like 4.') from None
+    system = current() if system is None else system
     claude = Path(env.get('MARCEL_CLAUDE') or Path.home() / '.local' / 'bin' / 'claude')
     if not claude.is_absolute():
         raise StartupError(
             f'MARCEL_CLAUDE must be an absolute path, not "{claude}". '
-            "systemd's user PATH has no ~/.local/bin, so a bare name would not be found."
+            f'{system.service_manager} has no ~/.local/bin, so a bare name would not be found.'
         )
-    runtime = env.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
-    sock = Path(env.get('MARCEL_RUNNER_SOCK') or Path(runtime) / 'marcel' / 'runner.sock')
+    sock = Path(env.get('MARCEL_RUNNER_SOCK') or system.default_socket(env))
     return Settings(claude=claude, cap=cap), sock, env.get('MARCEL_RUNNER_GROUP') or None
 
 

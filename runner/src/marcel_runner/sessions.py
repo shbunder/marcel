@@ -24,7 +24,8 @@ from typing import Any
 from urllib.parse import unquote
 
 from marcel_runner.claude_env import scrubbed_env
-from marcel_runner.health import Settings, cgroup_of, collect_health, version_problem
+from marcel_runner.health import Settings, collect_health, version_problem
+from marcel_runner.platform import System, current
 
 CHANNEL = 'plugin:marcel@marcel-local'
 # Every session the runner starts loads only project and local settings, never the owner's own
@@ -246,7 +247,7 @@ class Sessions:
         state_dir: Path,
         *,
         home: Path | None = None,
-        cgroup_of: Callable[[int], str] = cgroup_of,
+        system: System | None = None,
         channel_wait: float = CHANNEL_WAIT,
         poll: float = 0.25,
         token: Callable[[], str] = lambda: uuid.uuid4().hex[:12],
@@ -258,7 +259,7 @@ class Sessions:
         self.state_dir = state_dir
         self.state_file = state_dir / 'sessions.json'
         self.home = home or Path.home()
-        self.cgroup_of = cgroup_of
+        self.system = system if system is not None else current()  # Linux or macOS checks
         self.channel_wait = channel_wait
         self.poll = poll
         self.token = token
@@ -393,9 +394,10 @@ class Sessions:
 
     def refuse_start(self, nothing: str) -> None:
         """Raise when no session may start: Claude Code is not the pinned version (422
-        `claude_version`, checked first), or the supervisor is not up in its own unit (422
-        `no_supervisor`). `nothing` opens the message, e.g. "No session was started."."""
-        health = collect_health(self.settings, lambda: 0, self.cgroup_of)
+        `claude_version`, checked first), or the supervisor would not outlive a runner restart (422
+        `no_supervisor`). On a Mac no supervisor at all is fine: `claude --bg` starts one.
+        `nothing` opens the message, e.g. "No session was started."."""
+        health = collect_health(self.settings, lambda: 0, self.system)
         self._refuse_version(health['claude_version'], nothing)
         if not health['ok']:
             reason = health.get('reason', 'The runner cannot start sessions.')
@@ -404,7 +406,7 @@ class Sessions:
     def refuse_version(self, nothing: str) -> None:
         """Raise 422 `claude_version` when Claude Code is not the pinned version (a cloud start,
         which needs no supervisor, checks only this)."""
-        installed = collect_health(self.settings, lambda: 0, self.cgroup_of)['claude_version']
+        installed = collect_health(self.settings, lambda: 0, self.system)['claude_version']
         self._refuse_version(installed, nothing)
 
     def _refuse_version(self, installed: str, nothing: str) -> None:
