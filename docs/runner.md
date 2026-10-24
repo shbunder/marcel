@@ -54,6 +54,11 @@ All settings are environment variables. None is required.
 The socket has mode 0660. Its directory is created with mode 0750 when missing. On Linux systemd
 should create it (`RuntimeDirectory=marcel`, `RuntimeDirectoryPreserve=yes`).
 
+On a Mac without `MARCEL_RUNNER_GROUP` the socket is the owner's alone: mode 0600, in a folder of
+mode 0700. A Mac's home folders belong to group `staff`, which every local account is in, so 0660
+would let another account on the Mac start sessions as you. An existing socket folder that others
+can open is closed to them at start-up; one that belongs to another account is refused.
+
 ## `GET /health`
 
 Always answers 200 while the runner is up. Read `ok`. When `ok` is `false`, `reason` says why in
@@ -120,7 +125,7 @@ Anything else on the socket gets a JSON `Error` (404 for another path, 405 for a
 | The socket path is too long (over 104 bytes on a Mac, 108 on Linux) | Refuses to start. | The log names the path and says to use a shorter `MARCEL_RUNNER_SOCK` or `MARCEL_HOME`. |
 | A dead socket file is left from a crash | Deletes it and starts. | Nothing. |
 | A file that is not a socket is at the path | Refuses to start and leaves the file. | The log names the path. |
-| The socket cannot get mode 0660, or `MARCEL_RUNNER_GROUP` does not exist | Refuses to start. | The log says what to fix. |
+| The socket cannot get its mode (0660, or 0600 on a Mac), its folder belongs to someone else, or `MARCEL_RUNNER_GROUP` does not exist | Refuses to start. | The log says what to fix. |
 
 Sessions (spawn, list, get, stop, the worker cap, and what `active_workers` counts): [runner/sessions.md](runner/sessions.md).
 

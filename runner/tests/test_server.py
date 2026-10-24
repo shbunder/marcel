@@ -348,6 +348,46 @@ def test_mac_runner_still_refuses_a_daemon_status_it_cannot_read(
         serve(sock_path, Settings(claude=c, cap=4), system=mac(tmp_path), active_workers=lambda: 0)
 
 
+def test_a_private_socket_is_the_owners_alone(sock_path: Path) -> None:
+    # A Mac: $MARCEL_HOME sits in a home folder of group `staff`, which every local account is in.
+    sock_path.parent.chmod(0o755)  # an existing folder others can open
+    bind_socket(sock_path, private=True).close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(sock_path.parent.stat().st_mode) == 0o700
+
+
+def test_a_new_private_socket_folder_is_made_0700(tmp_path: Path) -> None:
+    d = Path(os.environ.get('TMPDIR', '/tmp')) / f'mp-{os.getpid()}'
+    try:
+        bind_socket(d / 'run' / 'r.sock', private=True).close()
+        assert stat.S_IMODE((d / 'run').stat().st_mode) == 0o700
+    finally:
+        for p in sorted(d.rglob('*'), reverse=True):
+            p.rmdir() if p.is_dir() else p.unlink()
+        d.rmdir()
+
+
+def test_a_private_socket_folder_of_someone_else_is_refused(
+    sock_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(os, 'getuid', lambda: os.stat(sock_path.parent).st_uid + 1)
+    with pytest.raises(StartupError, match='belongs to someone else'):
+        bind_socket(sock_path, private=True)
+    assert not sock_path.exists()
+
+
+def test_the_mac_runner_listens_privately_unless_a_group_is_set(
+    sock_path: Path, tmp_path: Path
+) -> None:
+    cfg = Settings(claude=mac_claude(tmp_path), cap=4)
+    serve(sock_path, cfg, system=mac(tmp_path), active_workers=lambda: 0).server_close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o600
+    sock_path.unlink()
+    # Linux keeps 0660: the hub may reach it through the group (SP6).
+    serve(sock_path, cfg, system=apart, active_workers=lambda: 0).server_close()
+    assert stat.S_IMODE(sock_path.stat().st_mode) == 0o660
+
+
 def test_a_socket_path_too_long_for_the_system_is_refused_in_words(tmp_path: Path) -> None:
     # Found on the Mac (S-22.3): a deep MARCEL_HOME passed 104 bytes and the runner crashed.
     deep = tmp_path / ('d' * 120) / 'runner.sock'

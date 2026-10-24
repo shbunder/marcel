@@ -44,6 +44,7 @@ class Linux:
     """The NUC: the supervisor is a systemd user unit of its own."""
 
     name = 'linux'
+    private_socket = False  # XDG_RUNTIME_DIR is the owner's alone already
     service_manager = "systemd's user PATH"
     supervisor_hint = f"check Claude's supervisor ({SUPERVISOR_UNIT})"
 
@@ -108,6 +109,7 @@ class MacOS:
     """A Mac: Claude's supervisor starts on demand and is shared with the user's sessions."""
 
     name = 'macos'
+    private_socket = True  # $MARCEL_HOME is in a home folder of group `staff`: every local account
     service_manager = "launchd's PATH"
     supervisor_hint = 'check that `claude daemon status` answers'
 

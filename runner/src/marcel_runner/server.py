@@ -30,6 +30,9 @@ from marcel_runner.workspaces import Workspaces, root_from_env
 
 SOCKET_MODE = 0o660
 DIR_MODE = 0o750
+# Only the owner: a Mac's home folders are group `staff`, which every local account is in (S-22.3).
+PRIVATE_SOCKET_MODE = 0o600
+PRIVATE_DIR_MODE = 0o700
 DEFAULT_CAP = 4
 
 
@@ -37,8 +40,13 @@ class StartupError(Exception):
     """The runner will not start. The message says why and what to do, in plain words."""
 
 
-def bind_socket(path: Path, group: str | None = None) -> socket.socket:
-    """Bind `path` as a unix socket, mode 0660. Only a dead socket is ever deleted."""
+def bind_socket(path: Path, group: str | None = None, *, private: bool = False) -> socket.socket:
+    """Bind `path` as a unix socket, mode 0660. Only a dead socket is ever deleted.
+
+    `private` (a Mac with no `MARCEL_RUNNER_GROUP`): mode 0600 in a folder only the owner can
+    open. An existing folder of the owner's that others can open is closed to them; one that
+    belongs to someone else is refused."""
+    want = PRIVATE_SOCKET_MODE if private else SOCKET_MODE
     gid = None
     if group is not None:
         try:
@@ -48,7 +56,9 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
                 f'The group "{group}" does not exist, so the socket cannot be shared with it. '
                 'Create it, or unset MARCEL_RUNNER_GROUP.'
             ) from None
-    path.parent.mkdir(mode=DIR_MODE, parents=True, exist_ok=True)
+    path.parent.mkdir(mode=PRIVATE_DIR_MODE if private else DIR_MODE, parents=True, exist_ok=True)
+    if private:
+        _close_folder(path.parent)
     if path.is_socket():
         probe = socket.socket(socket.AF_UNIX)
         try:
@@ -64,7 +74,7 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
     elif path.exists():
         raise StartupError(f'{path} exists and is not a socket, so the runner left it alone.')
     s = socket.socket(socket.AF_UNIX)
-    old = os.umask(0o777 & ~SOCKET_MODE)
+    old = os.umask(0o777 & ~want)
     try:
         s.bind(str(path))
     except OSError as e:
@@ -77,13 +87,13 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
     finally:
         os.umask(old)
     try:
-        os.chmod(path, SOCKET_MODE)
+        os.chmod(path, want)
         if gid is not None:
             os.chown(path, -1, gid)
         mode = stat.S_IMODE(path.stat().st_mode)
-        if mode != SOCKET_MODE:
+        if mode != want:
             raise StartupError(
-                f'The socket {path} has mode {mode:04o}, not 0660. '
+                f'The socket {path} has mode {mode:04o}, not {want:04o}. '
                 'The runner will not listen where others could reach it.'
             )
     except (StartupError, OSError) as e:
@@ -93,6 +103,23 @@ def bind_socket(path: Path, group: str | None = None) -> socket.socket:
             raise
         raise StartupError(f'Could not set up the socket {path}: {e.strerror or e}.') from e
     return s
+
+
+def _close_folder(folder: Path) -> None:
+    """Make the socket's folder the owner's alone, or refuse when it is someone else's."""
+    try:
+        st = folder.stat()
+        if st.st_uid != os.getuid():
+            raise StartupError(
+                f'The socket folder {folder} belongs to someone else, so the runner will not '
+                'listen there. Remove it, or set MARCEL_RUNNER_SOCK.'
+            )
+        if stat.S_IMODE(st.st_mode) & 0o077:
+            os.chmod(folder, PRIVATE_DIR_MODE)
+    except OSError as e:
+        raise StartupError(
+            f'Could not set up the socket folder {folder}: {e.strerror or e}.'
+        ) from e
 
 
 class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -263,7 +290,7 @@ def serve(
         print(f'marcel-runner: {wrong} No session will start until then.', file=sys.stderr)
     if sessions is not None:
         sessions.refresh_usage = probe.refresh  # a fresh usage reading before each worker spawn
-    sock = bind_socket(path, group)
+    sock = bind_socket(path, group, private=system.private_socket and group is None)
     return UnixHTTPServer(sock, health, probe, sessions, watcher, tails, workspaces, cloud, brains)
 
 
